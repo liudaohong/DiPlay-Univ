@@ -74,6 +74,8 @@ data class AirPlayConfig(
     val entertainmentSampleRate: Int = 48000,
     val hevc: Boolean = false,
     val microphone: Boolean = false,
+    /** False for display-only CarPlay where audio stays on the car's own Bluetooth link. */
+    val audio: Boolean = true,
     val manufacturer: String = "xcertplay",
     val model: String = "xcertplay",
     val oemLabel: String = "xcertplay",

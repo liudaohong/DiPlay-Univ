@@ -777,4 +777,10 @@ iPhone 出现提示时允许“信任”和使用 CarPlay。</string>
     <string name="qr_backup_no_network">未检测到可用的局域网 IPv4 地址，请先开启车机热点或连接 Wi-Fi。</string>
     <string name="qr_backup_invalid">设置文件格式无效。</string>
     <string name="qr_backup_imported">已成功导入 %1$d 项设置（跳过 %2$d 项）。</string>
+    <string name="call_echo_cancellation_title">通话回声消除（SpeexDSP）</string>
+    <string name="call_echo_cancellation_description">使用原生 SpeexDSP 软件回声消除处理 CarPlay 通话，改善对方听到自己回声的问题（默认关闭，按需开启）。</string>
+    <string name="call_voice_filter_title">通话低频语音滤波</string>
+    <string name="call_voice_filter_description">滤除通话音频 200Hz 以下低频嗡嗡声，使人声更清晰并降低麦克风回声反馈。</string>
+    <string name="car_bluetooth_audio_title">纯投屏 + 原车蓝牙音频（实验性）</string>
+    <string name="car_bluetooth_audio_description">仅向 iPhone 声明 CarPlay 画面，音频保持走车机原生蓝牙通道；开启时会自动关闭「自动开关蓝牙」。</string>
 </resources>

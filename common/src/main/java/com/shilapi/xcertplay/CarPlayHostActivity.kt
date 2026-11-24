@@ -5323,6 +5323,7 @@ class CarPlayHostActivity : ComponentActivity() {
             rightHandDrive = rightHandDrive,
             hevc = effectiveHevc,
             microphone = microphoneAvailable,
+            audio = !AirPlayPersistence.loadCarBluetoothAudio(this),
             manufacturer = normalizedManufacturer(),
             model = normalizedModel(),
             oemLabel = oemLabel,
@@ -5500,6 +5501,8 @@ class CarPlayHostActivity : ComponentActivity() {
             videoHeight = videoHeight,
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
             mtkDecoderTuning = AirPlayPersistence.loadMtkDecoderTuning(this),
+            callEchoCancellation = AirPlayPersistence.loadCallEchoCancellation(this),
+            callVoiceFilter = AirPlayPersistence.loadCallVoiceFilter(this),
             advancedAudioChannelMapping = advancedAudioChannelMapping,
             audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
             // Diagnostic tap: only the instruction-card stream is written; the recorder is
@@ -6104,8 +6107,10 @@ class CarPlayHostActivity : ComponentActivity() {
      * wait never keeps the radio off after the session is gone.
      */
     private fun maybeTurnOffBluetooth() {
-        if (!AirPlayPersistence.loadAutoBluetooth(this)) {
-            cancelAutoBluetoothOff("auto Bluetooth disabled")
+        if (!AirPlayPersistence.loadAutoBluetooth(this) ||
+            AirPlayPersistence.loadCarBluetoothAudio(this)
+        ) {
+            cancelAutoBluetoothOff("auto Bluetooth disabled or car Bluetooth audio active")
             return
         }
         if (SCREEN_TYPE_MAIN !in activeScreenStreamTypes) return

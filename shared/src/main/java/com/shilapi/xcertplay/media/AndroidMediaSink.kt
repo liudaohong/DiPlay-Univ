@@ -345,6 +345,9 @@ class AndroidMediaSink(
     private val videoHeight: Int = 720,
     private val preferSoftwareHevcDecoder: Boolean = false,
     private val mtkDecoderTuning: Boolean = false,
+    private val callEchoCancellation: Boolean = false,
+    private val callVoiceFilter: Boolean = false,
+    private val callSpeakerphone: Boolean = false,
     private val advancedAudioChannelMapping: Boolean = false,
     private val audioFocusEnabled: Boolean = false,
     private val mediaChannel: Int = 0,
@@ -947,6 +950,8 @@ private const val MAIN_STREAM_TYPE = 110
      * keys by audio focus this makes them adjust guidance volume during prompts.
      */
     @Volatile private var navigationFocusRequest: Any? = null
+    @Volatile private var callEchoReference: EchoReference? = null
+    @Volatile private var callSpeaker: CallSpeaker? = null
 
     private fun requestNavigationFocus() {
         val manager = audioManager ?: return
@@ -1006,8 +1011,20 @@ private const val MAIN_STREAM_TYPE = 110
             // existed and a lowered stream level survived the hang-up. CarPlay mirrors that level
             // onto the iPhone's own volume, which is why the driver saw "手机音量被调到 50%".
             snapshotMusicVolume("microphone started")
-            if (config.audioType == "telephony") enterCommunicationMode(id)
-            val uplink = microphoneUplinks.computeIfAbsent(id) { MicrophoneUplink(config, onAudioDiagnostic) }
+            if (config.audioType == "telephony") {
+                enterCommunicationMode(id)
+                if (callSpeakerphone) {
+                    audioManager?.let { callSpeaker = CallSpeaker.on(it) }
+                }
+            }
+            val uplink = microphoneUplinks.computeIfAbsent(id) {
+                MicrophoneUplink(
+                    config = config,
+                    onDiagnostic = onAudioDiagnostic,
+                    echoReference = if (config.audioType == "telephony") callEchoReference else null,
+                    useSoftwareEchoCancellation = callEchoCancellation && config.audioType == "telephony",
+                )
+            }
             if (!uplink.start()) {
                 microphoneUplinks.remove(id, uplink)
                 restoreAudioMode(id)
@@ -1025,6 +1042,10 @@ private const val MAIN_STREAM_TYPE = 110
         } finally {
             lastMicrophoneAtMs = SystemClock.elapsedRealtime()
             synchronized(openMicrophoneIds) { openMicrophoneIds.remove(id) }
+            callSpeaker?.let {
+                callSpeaker = null
+                it.restore()
+            }
             restoreAudioMode(id)
             // The uplink ending means the call or voice-clip capture is over, and the music must be
             // back at full level. restoreAudioMode() cannot cover this: it returns immediately when
@@ -1317,6 +1338,12 @@ private const val MAIN_STREAM_TYPE = 110
         val existing = audioRenderers[id]
         if (existing?.format == format) return existing
         existing?.close()
+        val isTelephony = format.audioType == "telephony"
+        val echoRef = if (isTelephony && callEchoCancellation) {
+            EchoReference(format.sampleRate).also { callEchoReference = it }
+        } else {
+            null
+        }
         return AudioRenderer(
             format,
             advancedAudioChannelMapping,
@@ -1331,6 +1358,8 @@ private const val MAIN_STREAM_TYPE = 110
             onNavigationFrame = { onNavigationAudioFrame() },
             onMediaTrackSession = onMediaTrackSession,
             onMediaHeard = onMediaHeard,
+            callVoiceFilter = isTelephony && callVoiceFilter,
+            echoReference = echoRef,
         ).also { audioRenderers[id] = it }
     }
 }
@@ -1994,8 +2023,15 @@ private class AudioRenderer(
     private val onMediaTrackSession: ((Int) -> Unit)? = null,
     /** Called once when the music head starts moving again after a stall. */
     private val onMediaHeard: (() -> Unit)? = null,
+    private val callVoiceFilter: Boolean = false,
+    private val echoReference: EchoReference? = null,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
+
+    private val voiceFilter = if (callVoiceFilter) VoiceFilter(format.sampleRate, format.channels) else null
+    private val rtpSequenceGap = if (format.audioType == "media") RtpSequenceGap() else null
+    private val lostMusicFill = if (format.audioType == "media") LostMusicFill(format.sampleRate) else null
+    private var silenceBuffer = ByteArray(0)
 
     private var trackAttributes: AudioAttributes? = null
     private var mappedChannel: AudioChannel? = null
@@ -2139,6 +2175,10 @@ private class AudioRenderer(
             }
         } else if (started) {
             lastQueuedSample = sample
+            val gap = rtpSequenceGap?.lostBefore(rtp) ?: 0
+            if (gap > 0) {
+                lostMusicFill?.lossBefore(sampleTimestampUs(sample), gap)
+            }
         }
     }
 
@@ -2685,6 +2725,18 @@ private class AudioRenderer(
                             output.position(info.offset)
                             output.limit(info.offset + size)
                             output.get(pcm, 0, size)
+                            if (playbackStarted && mappedChannel == AudioChannel.MEDIA) {
+                                val fillFrames = lostMusicFill?.silenceBefore(
+                                    ptsUs = info.presentationTimeUs,
+                                    frames = size / frameBytes,
+                                    maxFrames = (startThresholdBytes / frameBytes).coerceAtLeast(0),
+                                ) ?: 0
+                                if (fillFrames > 0) {
+                                    val silenceBytes = fillFrames * frameBytes
+                                    if (silenceBuffer.size < silenceBytes) silenceBuffer = ByteArray(silenceBytes)
+                                    writePcm(silenceBuffer, 0, silenceBytes)
+                                }
+                            }
                             writePcm(pcm, 0, size)
                         }
                     }
@@ -2767,6 +2819,9 @@ private class AudioRenderer(
         if (!fadeApplied) {
             applyFadeIn(data, offset, length)
             fadeApplied = true
+        }
+        if (voiceFilter != null && mappedChannel == AudioChannel.PHONE) {
+            voiceFilter.process(data, offset, length)
         }
         // Music is scaled here as well as through the track volume: a head unit that pins our
         // track at 100 % would otherwise make the navigation duck inaudible.
@@ -2857,6 +2912,15 @@ private class AudioRenderer(
                 }
             }
             if (playbackStarted) trimClock(track)
+        }
+        if (written > 0 && echoReference != null && mappedChannel == AudioChannel.PHONE) {
+            val headFrames = runCatching { track.playbackHeadPosition.toLong() and 0xffff_ffffL }.getOrNull()
+            val pendingFrames = if (playbackStarted && headFrames != null) {
+                (totalWrittenFrames - headFrames).coerceAtLeast(0L)
+            } else {
+                null
+            }
+            echoReference.append(data, offset, written, format.channels, pendingFrames, System.nanoTime())
         }
     }
 

@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val onDiagnostic: (String) -> Unit = {},
+    private val echoReference: EchoReference? = null,
+    private val useSoftwareEchoCancellation: Boolean = false,
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
@@ -36,6 +38,7 @@ internal class MicrophoneUplink(
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var opusEncoder: OpusEncoder? = null
+    @Volatile private var echoCanceller: CallEchoCanceller? = null
     @Volatile private var effects: List<AudioEffect> = emptyList()
     private var thread: Thread? = null
 
@@ -135,6 +138,19 @@ internal class MicrophoneUplink(
         recorder = nextRecorder
         socket = nextSocket
         opusEncoder = nextEncoder
+        if (useSoftwareEchoCancellation &&
+            echoReference != null &&
+            config.audioType == "telephony" &&
+            config.channels == 1 &&
+            echoReference.sampleRate == config.sampleRate
+        ) {
+            echoCanceller = SpeexEchoCanceller.create(
+                frameSamples = config.samplesPerPacket,
+                sampleRate = config.sampleRate,
+                tailMillis = ECHO_TAIL_MILLIS,
+            )
+            onDiagnostic("Microphone: SpeexDSP AEC=${echoCanceller != null} rate=${config.sampleRate}")
+        }
         return try {
             if (config.audioType == "telephony") effects = voiceEffects(nextRecorder.audioSessionId)
             nextRecorder.startRecording()
@@ -212,12 +228,24 @@ internal class MicrophoneUplink(
         val clockBase = System.nanoTime()
         var framesPaced = 0L
         var filled = 0
+        var gotFirstRead = false
+        var retriedFirstRead = false
+        val echoRefSamples = echoCanceller?.let { ShortArray(it.frameSamples) }
         try {
             while (running.get()) {
                 stats.reading()
                 val count = recorder.read(readBuffer, 0, readBuffer.size, AudioRecord.READ_BLOCKING)
                 stats.read(count)
                 if (count < 0) {
+                    if (running.get() && !gotFirstRead && !retriedFirstRead) {
+                        retriedFirstRead = true
+                        Log.w(TAG, "microphone first read failed code=$count; restarting recorder once")
+                        runCatching {
+                            recorder.stop()
+                            recorder.startRecording()
+                        }
+                        continue
+                    }
                     if (running.get()) {
                         Log.e(TAG, "microphone read failed code=$count")
                         stats.failure(MicrophoneFailureStage.READ, code = count)
@@ -228,6 +256,7 @@ internal class MicrophoneUplink(
                     stats.flush(routeType = routeInfo)
                     continue
                 }
+                gotFirstRead = true
                 var offset = 0
                 while (offset < count && running.get()) {
                     val copied = minOf(frame.size - filled, count - offset)
@@ -237,6 +266,13 @@ internal class MicrophoneUplink(
                     if (filled == frame.size) {
                         val due = clockBase + (framesPaced + 1) * frameNanos
                         if (System.nanoTime() + frameNanos / 2 >= due) {
+                            val canceller = echoCanceller
+                            val ref = echoReference
+                            if (canceller != null && ref != null && echoRefSamples != null) {
+                                if (ref.read(echoRefSamples, System.nanoTime())) {
+                                    canceller.process(frame, echoRefSamples)
+                                }
+                            }
                             sendFrame(socket, counters, frame)
                             framesPaced++
                         } else {
@@ -271,7 +307,7 @@ internal class MicrophoneUplink(
                 socket = socket,
                 counters = counters,
                 body = body,
-                samples = config.samplesPerPacket,
+                samples = config.rtpSamplesPerPacket,
             )
         }
     }
@@ -349,11 +385,15 @@ internal class MicrophoneUplink(
         val currentEncoder = opusEncoder
         opusEncoder = null
         currentEncoder?.close()
+        val currentCanceller = echoCanceller
+        echoCanceller = null
+        currentCanceller?.close()
     }
 
     private companion object {
         const val TAG = "xcertplay-usb"
         const val MIN_READ_BYTES = 2_048
         const val CLOSE_JOIN_MILLIS = 500L
+        const val ECHO_TAIL_MILLIS = 200
     }
 }

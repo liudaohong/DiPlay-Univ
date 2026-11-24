@@ -924,6 +924,30 @@ class DiPlayActivity : ComponentActivity() {
         activeSectionGroups = GROUP_FREQUENT or GROUP_SOUND
         section(content, getString(R.string.audio_routing)) { card ->
             toggle(card, getString(R.string.contrib_audio_home_toggle_audio_focus), getString(R.string.contrib_audio_home_toggle_audio_focus_desc), AirPlayPersistence.loadAudioFocusEnabled(this)) { AirPlayPersistence.saveAudioFocusEnabled(this, it) }
+            toggle(
+                card,
+                getString(R.string.call_echo_cancellation_title),
+                getString(R.string.call_echo_cancellation_description),
+                AirPlayPersistence.loadCallEchoCancellation(this),
+            ) { AirPlayPersistence.saveCallEchoCancellation(this, it) }
+            toggle(
+                card,
+                getString(R.string.call_voice_filter_title),
+                getString(R.string.call_voice_filter_description),
+                AirPlayPersistence.loadCallVoiceFilter(this),
+            ) { AirPlayPersistence.saveCallVoiceFilter(this, it) }
+            toggle(
+                card,
+                getString(R.string.car_bluetooth_audio_title),
+                getString(R.string.car_bluetooth_audio_description),
+                AirPlayPersistence.loadCarBluetoothAudio(this),
+            ) { enabled ->
+                AirPlayPersistence.saveCarBluetoothAudio(this, enabled)
+                if (enabled && AirPlayPersistence.loadAutoBluetooth(this)) {
+                    AirPlayPersistence.saveAutoBluetooth(this, false)
+                    render()
+                }
+            }
             if (resources.getBoolean(R.bool.config_advanced_audio_channel_mapping)) {
                 toggle(card, getString(R.string.advanced_audio_channel_mapping),
                     getString(R.string.use_usage_content_type_routing_instead_of_stream_type),

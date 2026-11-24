@@ -779,4 +779,10 @@ CarPlay, right here on your car display.</string>
     <string name="qr_backup_no_network">No local IPv4 network address found. Enable the car hotspot or connect Wi-Fi first.</string>
     <string name="qr_backup_invalid">Invalid settings file.</string>
     <string name="qr_backup_imported">Imported %1$d settings (%2$d skipped).</string>
+    <string name="call_echo_cancellation_title">Call echo cancellation (SpeexDSP)</string>
+    <string name="call_echo_cancellation_description">Software acoustic echo canceller for CarPlay phone calls when the head unit does not cancel call echo itself.</string>
+    <string name="call_voice_filter_title">Call voice clarity filter</string>
+    <string name="call_voice_filter_description">High-pass filter below 200 Hz on call audio to reduce boomy bass and acoustic echo feedback.</string>
+    <string name="car_bluetooth_audio_title">Display-only + car Bluetooth audio (Experimental)</string>
+    <string name="car_bluetooth_audio_description">Advertise CarPlay display only so music and calls stay on the car\'s native Bluetooth. Disables Auto Bluetooth off.</string>
 </resources>

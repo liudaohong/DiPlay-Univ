@@ -73,10 +73,12 @@ object AirPlayInfoPlist {
             "rightHandDrive" to config.rightHandDrive,
             "keepAliveLowPower" to false,
             "keepAliveSendStatsAsBody" to false,
-            "modes" to modes(),
+            "modes" to modes(config.audio),
         )
-        info["audioLatencies"] = audioLatencies()
-        info["audioFormats"] = audioFormats(config.entertainmentSampleRate, config.microphone)
+        if (config.audio) {
+            info["audioLatencies"] = audioLatencies()
+            info["audioFormats"] = audioFormats(config.entertainmentSampleRate, config.microphone)
+        }
         info["extendedFeatures"] = listOf("vocoderInfo", "enhancedRequestCarUI")
         info["displays"] = displays
         info["hidDevices"] = listOf(
@@ -115,8 +117,12 @@ object AirPlayInfoPlist {
         "unborrowConstraint" to CONSTRAINT_ANYTIME,
     )
 
-    private fun modes(): Map<String, Any?> = linkedMapOf(
-        "resources" to listOf(resource(RESOURCE_SCREEN), resource(RESOURCE_AUDIO)),
+    private fun modes(includeAudio: Boolean = true): Map<String, Any?> = linkedMapOf(
+        "resources" to if (includeAudio) {
+            listOf(resource(RESOURCE_SCREEN), resource(RESOURCE_AUDIO))
+        } else {
+            listOf(resource(RESOURCE_SCREEN))
+        },
         // Declared again after the A/B test of 2026-10-19: removing appStates did not shorten the
         // two-second blank before an app appears (the phone simply sends no frames while it
         // launches the app), so this stays as upstream declares it.
