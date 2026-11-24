@@ -6,6 +6,7 @@ import android.util.Log
 import com.shilapi.xcertplay.compat.Base64Compat
 import java.security.GeneralSecurityException
 import java.security.KeyStore
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -17,12 +18,15 @@ import javax.crypto.spec.GCMParameterSpec
  *
  * Designed for car head units (Android 7.1+ / UNI-V Android 9):
  *  - No lockscreen/user-authentication requirement, so headless boot receivers can decrypt.
+ *  - Caches the Keystore key handle and retries once on transient Binder/HAL hiccups.
  *  - Versioned magic prefixes allow zero-loss in-place migration from legacy plaintext files/prefs.
  *  - Degrades safely if a custom head-unit ROM ships a broken AndroidKeyStore HAL.
  */
 class SecretBox(
     private val keyProvider: () -> SecretKey,
+    private val onKeyRetryReset: () -> Unit,
 ) {
+    constructor(keyProvider: () -> SecretKey) : this(keyProvider, {})
     fun isEncryptedBytes(data: ByteArray): Boolean =
         data.size > HEADER_FIXED_BYTES &&
             data[0] == MAGIC_0 &&
@@ -34,7 +38,7 @@ class SecretBox(
         value != null && value.startsWith(STRING_PREFIX)
 
     @Throws(GeneralSecurityException::class)
-    fun encryptBytes(plaintext: ByteArray): ByteArray {
+    fun encryptBytes(plaintext: ByteArray): ByteArray = withSingleKeyRetry {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, keyProvider())
         val iv = cipher.iv ?: throw GeneralSecurityException("Cipher did not provide GCM IV")
@@ -50,7 +54,7 @@ class SecretBox(
         out[4] = iv.size.toByte()
         System.arraycopy(iv, 0, out, HEADER_FIXED_BYTES, iv.size)
         System.arraycopy(ciphertext, 0, out, HEADER_FIXED_BYTES + iv.size, ciphertext.size)
-        return out
+        out
     }
 
     @Throws(GeneralSecurityException::class)
@@ -64,9 +68,11 @@ class SecretBox(
         }
         val iv = envelope.copyOfRange(HEADER_FIXED_BYTES, HEADER_FIXED_BYTES + ivLen)
         val ciphertext = envelope.copyOfRange(HEADER_FIXED_BYTES + ivLen, envelope.size)
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, keyProvider(), GCMParameterSpec(GCM_TAG_BITS, iv))
-        return cipher.doFinal(ciphertext)
+        return withSingleKeyRetry {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, keyProvider(), GCMParameterSpec(GCM_TAG_BITS, iv))
+            cipher.doFinal(ciphertext)
+        }
     }
 
     fun encryptStringOrNull(plaintext: String): String? = try {
@@ -109,6 +115,19 @@ class SecretBox(
         return stored
     }
 
+    private inline fun <T> withSingleKeyRetry(block: () -> T): T {
+        return try {
+            block()
+        } catch (authFail: AEADBadTagException) {
+            // Ciphertext tampered or wrong key: do not hide authentication failure.
+            throw authFail
+        } catch (_: Throwable) {
+            // Transient Keystore/TEE IPC hiccup on early boot: drop cached handle and retry once.
+            runCatching { onKeyRetryReset() }
+            block()
+        }
+    }
+
     private fun logWarn(message: String, error: Throwable) {
         runCatching { Log.w(TAG, "$message: ${error.javaClass.simpleName}: ${error.message}") }
     }
@@ -133,12 +152,22 @@ object KeystoreSecretBox {
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     private const val MASTER_KEY_ALIAS = "xcertplay_master_key_v1"
 
-    val default: SecretBox = SecretBox(::getOrCreateMasterKey)
+    @Volatile private var cachedMasterKey: SecretKey? = null
+
+    val default: SecretBox = SecretBox(
+        keyProvider = ::getOrCreateMasterKey,
+        onKeyRetryReset = { cachedMasterKey = null },
+    )
 
     @Synchronized
     private fun getOrCreateMasterKey(): SecretKey {
+        cachedMasterKey?.let { return it }
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        (keyStore.getKey(MASTER_KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val existing = keyStore.getKey(MASTER_KEY_ALIAS, null) as? SecretKey
+        if (existing != null) {
+            cachedMasterKey = existing
+            return existing
+        }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         val spec = KeyGenParameterSpec.Builder(
             MASTER_KEY_ALIAS,
@@ -150,6 +179,6 @@ object KeystoreSecretBox {
             .setRandomizedEncryptionRequired(true)
             .build()
         generator.init(spec)
-        return generator.generateKey()
+        return generator.generateKey().also { cachedMasterKey = it }
     }
 }

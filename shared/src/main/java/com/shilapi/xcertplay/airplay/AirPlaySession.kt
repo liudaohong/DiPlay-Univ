@@ -497,12 +497,19 @@ class AirPlaySession(
 
     internal fun handle(request: RtspMessage.Request): RtspMessage.Response {
         when (request.method) {
-            "SETUP" -> return handleSetup(request)
+            "SETUP" -> {
+                if (!pairVerify.isVerified) return rejectUnverified(request)
+                return handleSetup(request)
+            }
             "RECORD" -> {
+                if (!pairVerify.isVerified) return rejectUnverified(request)
                 listener.onSessionActive(this)
                 return RtspMessage.Response(status = 200)
             }
-            "TEARDOWN" -> return handleTeardown(request)
+            "TEARDOWN" -> {
+                if (!pairVerify.isVerified) return rejectUnverified(request)
+                return handleTeardown(request)
+            }
         }
 
         val path = request.path.lowercase()
@@ -561,20 +568,31 @@ class AirPlaySession(
                     body = BplistCodec.encode(info),
                 )
             }
-            request.method == "POST" && path.endsWith("/command") -> handleCommand(request)
+            request.method == "POST" && path.endsWith("/command") -> {
+                if (!pairVerify.isVerified) rejectUnverified(request) else handleCommand(request)
+            }
             request.method == "POST" && path.endsWith("/feedback") -> {
-                val body = media.onFeedback(this)
-                if (body == null) {
-                    RtspMessage.Response(status = 200)
+                if (!pairVerify.isVerified) {
+                    rejectUnverified(request)
                 } else {
-                    RtspMessage.Response(
-                        headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
-                        body = BplistCodec.encode(body),
-                    )
+                    val body = media.onFeedback(this)
+                    if (body == null) {
+                        RtspMessage.Response(status = 200)
+                    } else {
+                        RtspMessage.Response(
+                            headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
+                            body = BplistCodec.encode(body),
+                        )
+                    }
                 }
             }
             else -> RtspMessage.Response(status = 200)
         }
+    }
+
+    private fun rejectUnverified(request: RtspMessage.Request): RtspMessage.Response {
+        runCatching { debugLog("airplay rejected unverified ${request.method} ${request.path}") }
+        return RtspMessage.Response(status = 403)
     }
 
     private fun notifySetupResponseSent() {

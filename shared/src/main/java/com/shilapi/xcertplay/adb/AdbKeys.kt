@@ -42,19 +42,18 @@ object AdbKeys {
         val publicFile = File(dir, PUBLIC)
         runCatching {
             val storedPrivate = privateFile.readBytes()
-            val pkcs8Bytes = if (secretBox.isEncryptedBytes(storedPrivate)) {
-                secretBox.decryptBytes(storedPrivate)
-            } else {
-                storedPrivate.also { plain ->
-                    // Legacy plaintext PKCS#8 on disk: migrate in-place to encrypted envelope.
-                    runCatching { writeAtomically(privateFile, secretBox.encryptBytes(plain)) }
-                }
-            }
+            val wasEncrypted = secretBox.isEncryptedBytes(storedPrivate)
+            val pkcs8Bytes = if (wasEncrypted) secretBox.decryptBytes(storedPrivate) else storedPrivate
             val factory = KeyFactory.getInstance("RSA")
-            return KeyPair(
+            val loaded = KeyPair(
                 factory.generatePublic(X509EncodedKeySpec(publicFile.readBytes())),
                 factory.generatePrivate(PKCS8EncodedKeySpec(pkcs8Bytes)),
             )
+            // Validate KeyPair BEFORE migrating legacy plaintext on disk to encrypted envelope.
+            if (!wasEncrypted) {
+                runCatching { writeAtomically(privateFile, secretBox.encryptBytes(pkcs8Bytes)) }
+            }
+            return loaded
         }
         val pair = KeyPairGenerator.getInstance("RSA").apply { initialize(KEY_BITS) }.generateKeyPair()
         dir.mkdirs()

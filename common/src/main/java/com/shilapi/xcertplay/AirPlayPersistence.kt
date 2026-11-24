@@ -1674,21 +1674,28 @@ object AirPlayPersistence {
 
     fun loadIdentity(context: Context): AirPlayIdentity {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val privateKey = loadSecretString(prefs, KEY_IDENT_PRIVATE)
+        val rawPrivate = prefs.getString(KEY_IDENT_PRIVATE, null)
         val publicKey = prefs.getString(KEY_IDENT_PUBLIC, null)
         val pairingId = prefs.getString(KEY_PAIRING_ID, null)
+        val privateKey = loadSecretString(prefs, KEY_IDENT_PRIVATE)
         if (!privateKey.isNullOrEmpty() && !publicKey.isNullOrEmpty() && !pairingId.isNullOrEmpty()) {
             runCatching {
                 return AirPlayIdentity(privateKey.decodeHex(), publicKey.decodeHex(), pairingId)
             }
         }
-        return AirPlayIdentity.generate().also { identity ->
+        val generated = AirPlayIdentity.generate()
+        // If an already-encrypted identity failed to decrypt (e.g. transient Android 9 Keystore
+        // hiccup during early boot), do NOT clobber the persisted pairing identity on disk so the
+        // owner's iPhone does not permanently lose pairing once Keystore recovers.
+        val encryptedOnDisk = com.shilapi.xcertplay.security.KeystoreSecretBox.default.isEncryptedString(rawPrivate)
+        if (!encryptedOnDisk) {
             val editor = prefs.edit()
-                .putString(KEY_IDENT_PUBLIC, identity.publicKey.toHex())
-                .putString(KEY_PAIRING_ID, identity.pairingId)
-            putSecretString(editor, KEY_IDENT_PRIVATE, identity.privateKey.toHex())
+                .putString(KEY_IDENT_PUBLIC, generated.publicKey.toHex())
+                .putString(KEY_PAIRING_ID, generated.pairingId)
+            putSecretString(editor, KEY_IDENT_PRIVATE, generated.privateKey.toHex())
             editor.apply()
         }
+        return generated
     }
 
     fun loadPairings(context: Context, onSave: (String, ByteArray) -> Unit): PairingStore {

@@ -3980,12 +3980,20 @@ class DiPlayActivity : ComponentActivity() {
         if (AirPlayPersistence.loadClusterThemeDir(this).isNotBlank()) {
             parent.addView(
                 button(getString(R.string.porthole_theme_import_sandbox), false) {
-                    val count = CustomThemeRepository.importExternalThemesToSandbox(this)
-                    toast(
-                        if (count > 0) getString(R.string.porthole_theme_imported_sandbox, count)
-                        else getString(R.string.porthole_theme_import_empty),
-                    )
-                    if (count > 0) render()
+                    val app = applicationContext
+                    Thread({
+                        val count = runCatching {
+                            CustomThemeRepository.importExternalThemesToSandbox(app)
+                        }.getOrDefault(0)
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            toast(
+                                if (count > 0) getString(R.string.porthole_theme_imported_sandbox, count)
+                                else getString(R.string.porthole_theme_import_empty),
+                            )
+                            if (count > 0) render()
+                        }
+                    }, "diplay-theme-import").start()
                 },
                 matchButton(4, 48),
             )

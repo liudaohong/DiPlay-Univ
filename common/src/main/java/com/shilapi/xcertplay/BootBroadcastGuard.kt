@@ -8,11 +8,21 @@ import android.content.Intent
  * Standard Android broadcasts (`ACTION_BOOT_COMPLETED`, `ACTION_SHUTDOWN`) are protected by the OS
  * (`<protected-broadcast>`), so unprivileged apps cannot forge them. Vendor/custom head-unit actions
  * (`ACTION_BOOT_HU`, `QUICKBOOT_POWERON`, `ACTION_SHUTDOWN_HU`) may not be declared protected on
- * every head-unit ROM, allowing a third-party app to send them while driving.
+ * every head-unit ROM.
+ *
+ * Important UNI-V / Feiyu OS STR (Suspend-to-RAM) constraint:
+ *  - Overnight parking uses STR where `SystemClock.elapsedRealtime()` keeps counting (hours/days)
+ *    and the process stays alive in memory, so a fixed "3 minutes since cold boot" cutoff would
+ *    break next-morning STR wake-up auto-start.
+ *  - Instead, custom boot launch is blocked whenever CarPlay already has an active session (so a
+ *    third-party app cannot hijack an active drive) and rate-limited by a cooldown window.
+ *  - Custom HU shutdown (`ACTION_SHUTDOWN_HU`) fires during a ~2.5 s ordered broadcast BEFORE the
+ *    display goes completely off, so it is gated on `pendingRestore` (only restoring Bluetooth if
+ *    DiPlay itself turned it off) rather than screen-off state.
  */
 internal object BootBroadcastGuard {
-    /** Custom head-unit boot actions are only honored within 3 minutes of OS/STR boot. */
-    const val CUSTOM_BOOT_WINDOW_MS = 180_000L
+    /** Minimum interval between custom head-unit boot auto-launches. */
+    const val CUSTOM_BOOT_COOLDOWN_MS = 60_000L
 
     const val ACTION_BOOT_HU = "android.intent.action.ACTION_BOOT_HU"
     const val ACTION_QUICKBOOT_POWERON = "android.intent.action.QUICKBOOT_POWERON"
@@ -21,26 +31,30 @@ internal object BootBroadcastGuard {
     fun isCustomBootAction(action: String?): Boolean =
         action == ACTION_BOOT_HU || action == ACTION_QUICKBOOT_POWERON
 
-    fun allowBootAction(
+    fun allowBootLaunch(
         action: String?,
-        elapsedRealtimeMs: Long,
-        alreadyHandledCustomBoot: Boolean,
+        hasActiveSession: Boolean,
+        nowElapsedMs: Long,
+        lastCustomBootAtMs: Long,
     ): Boolean = when (action) {
         Intent.ACTION_BOOT_COMPLETED -> true
         ACTION_BOOT_HU, ACTION_QUICKBOOT_POWERON ->
-            !alreadyHandledCustomBoot && elapsedRealtimeMs in 0L..CUSTOM_BOOT_WINDOW_MS
+            // Block hijacking an active drive; allow cold boot & STR wake-up after cooldown.
+            !hasActiveSession && (
+                lastCustomBootAtMs < 0L ||
+                    nowElapsedMs < lastCustomBootAtMs ||
+                    (nowElapsedMs - lastCustomBootAtMs) >= CUSTOM_BOOT_COOLDOWN_MS
+                )
         else -> false
     }
 
-    fun allowShutdownAction(
-        action: String?,
-        pendingRestore: Boolean,
-        isScreenInteractive: Boolean,
-    ): Boolean = when (action) {
+    fun allowBluetoothBootRestore(action: String?, pendingRestore: Boolean): Boolean =
+        pendingRestore && (action == Intent.ACTION_BOOT_COMPLETED || isCustomBootAction(action))
+
+    fun allowShutdownAction(action: String?, pendingRestore: Boolean): Boolean = when (action) {
         Intent.ACTION_SHUTDOWN -> true
-        // Custom HU shutdown is only honored when DiPlay actually turned Bluetooth off AND the
-        // head-unit screen is already non-interactive (ACC off), blocking mid-drive spoofing.
-        ACTION_SHUTDOWN_HU -> pendingRestore && !isScreenInteractive
+        // Only act on custom HU shutdown when DiPlay itself turned Bluetooth off.
+        ACTION_SHUTDOWN_HU -> pendingRestore
         else -> false
     }
 }

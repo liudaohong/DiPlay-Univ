@@ -22,15 +22,37 @@ class AirPlayPairLockTest {
         identity: AirPlayIdentity,
         store: PairingStore,
         lockPaired: Boolean,
+        listener: AirPlaySessionListener = object : AirPlaySessionListener {},
     ) = AirPlaySession(
         socket = Socket(),
         config = testConfig(lockPaired),
         identity = identity,
         pairings = store,
         mfi = null,
-        listener = object : AirPlaySessionListener {},
+        listener = listener,
         media = object : AirPlayMediaHandler {},
     )
+
+    @Test
+    fun unverifiedSessionRejectsSetupRecordCommandFeedbackAndTeardown() {
+        val identity = AirPlayIdentity.generate()
+        val store = PairingStore()
+        var sessionActivated = false
+        val listener = object : AirPlaySessionListener {
+            override fun onSessionActive(session: AirPlaySession) {
+                sessionActivated = true
+            }
+        }
+
+        testSession(identity, store, lockPaired = false, listener = listener).use { session ->
+            assertEquals(403, session.handle(RtspMessage.Request("SETUP", "rtsp://127.0.0.1/1", "RTSP/1.0", emptyMap(), ByteArray(0))).status)
+            assertEquals(403, session.handle(RtspMessage.Request("RECORD", "rtsp://127.0.0.1/1", "RTSP/1.0", emptyMap(), ByteArray(0))).status)
+            assertEquals(403, session.handle(RtspMessage.Request("TEARDOWN", "rtsp://127.0.0.1/1", "RTSP/1.0", emptyMap(), ByteArray(0))).status)
+            assertEquals(403, session.handle(RtspMessage.Request("POST", "/command", "RTSP/1.0", emptyMap(), ByteArray(0))).status)
+            assertEquals(403, session.handle(RtspMessage.Request("POST", "/feedback", "RTSP/1.0", emptyMap(), ByteArray(0))).status)
+            assertFalse(sessionActivated)
+        }
+    }
 
     @Test
     fun lockModeAllowsInitialPairingWhenStoreIsEmptyThenRejectsStrangerPairSetup() {
@@ -60,11 +82,21 @@ class AirPlayPairLockTest {
         store.save("owner-iphone-uuid", ownerLtpk.publicKey)
         assertTrue(store.hasPairings())
 
-        testSession(identity, store, lockPaired = true).use { lockedSession ->
+        var activated = false
+        val listener = object : AirPlaySessionListener {
+            override fun onSessionActive(session: AirPlaySession) {
+                activated = true
+            }
+        }
+        testSession(identity, store, lockPaired = true, listener = listener).use { lockedSession ->
             val rejectedResp = lockedSession.handle(pairSetupReq)
             val rejectedTlv = Tlv8Codec.decode(rejectedResp.body)
             assertEquals(2, rejectedTlv[0x06]?.firstOrNull()?.toInt())
             assertEquals(2, rejectedTlv[0x07]?.firstOrNull()?.toInt()) // ERROR_AUTHENTICATION
+
+            // Unverified RECORD is rejected before pair-verify completes.
+            assertEquals(403, lockedSession.handle(RtspMessage.Request("RECORD", "rtsp://127.0.0.1/1", "RTSP/1.0", emptyMap(), ByteArray(0))).status)
+            assertFalse(activated)
 
             // 3. Meanwhile, /pair-verify with the already-paired owner's key succeeds!
             val clientEph = AirPlayCrypto.x25519Generate()
@@ -113,6 +145,10 @@ class AirPlayPairLockTest {
             assertEquals(4, v4[0x06]?.firstOrNull()?.toInt())
             assertNull(v4[0x07])
             assertTrue(lockedSession.pairVerify.isVerified)
+
+            // Once verified, RECORD succeeds and activates the session.
+            assertEquals(200, lockedSession.handle(RtspMessage.Request("RECORD", "rtsp://127.0.0.1/1", "RTSP/1.0", emptyMap(), ByteArray(0))).status)
+            assertTrue(activated)
         }
 
         // 4. With lock disabled, /pair-setup remains open as normal.

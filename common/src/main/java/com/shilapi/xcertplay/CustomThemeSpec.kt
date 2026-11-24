@@ -423,6 +423,9 @@ object CustomThemeRepository {
      * Copies valid custom themes from the currently configured external folder (e.g. `/data/local/tmp/themes`)
      * into the app-private sandbox (`filesDir/themes`) and switches the active folder setting back to
      * the sandbox (SEC-07), removing runtime exposure to world/shell-writable directories.
+     *
+     * Preserves Unicode/Chinese theme folder names (avoiding collision) and copies nested asset
+     * subdirectories within bounded depth and size limits while blocking symlinks and path traversal.
      */
     fun importExternalThemesToSandbox(context: Context): Int {
         val configured = AirPlayPersistence.loadClusterThemeDir(context).trim()
@@ -439,27 +442,69 @@ object CustomThemeRepository {
             val entry = readEntry(canonChild) ?: continue
             // Ensure the theme spec parses cleanly within size/count bounds before importing.
             runCatching { parse(entry) }.getOrNull() ?: continue
-            val safeFolderName = canonChild.name.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { continue }
+            val safeFolderName = sanitizeImportFolderName(canonChild.name) ?: continue
             val targetDir = File(sandboxRoot, safeFolderName)
-            val files = canonChild.listFiles() ?: continue
-            targetDir.mkdirs()
-            for (asset in files) {
-                if (!asset.isFile) continue
-                val canonAsset = runCatching { asset.canonicalFile }.getOrNull() ?: continue
-                if (!canonAsset.path.startsWith(canonChild.path + File.separator)) continue
-                val maxBytes = if (canonAsset.name == FILE) MAX_THEME_JSON_BYTES else MAX_ASSET_FILE_BYTES
-                if (canonAsset.length() > maxBytes) continue
-                canonAsset.inputStream().use { input ->
-                    File(targetDir, canonAsset.name).outputStream().use { output -> input.copyTo(output) }
-                }
+            val targetCanon = runCatching { targetDir.canonicalFile }.getOrNull() ?: continue
+            if (!targetCanon.path.startsWith(sandboxRoot.path + File.separator)) continue
+            val budget = longArrayOf(MAX_THEME_IMPORT_BYTES)
+            if (copyThemeTree(canonChild, targetCanon, canonChild, sandboxRoot, depth = 0, budget = budget)) {
+                imported++
             }
-            imported++
         }
         if (imported > 0) {
             AirPlayPersistence.saveClusterThemeDir(context, "")
         }
         return imported
     }
+
+    private fun sanitizeImportFolderName(raw: String): String? {
+        val cleaned = buildString {
+            for (ch in raw.trim()) {
+                when {
+                    ch == '/' || ch == '\\' || ch == '\u0000' || ch.code < 0x20 -> append('_')
+                    else -> append(ch)
+                }
+            }
+        }.trim().trim('.')
+        if (cleaned.isEmpty() || cleaned == "." || cleaned == ".." || cleaned.contains("..")) return null
+        return cleaned.take(64)
+    }
+
+    private fun copyThemeTree(
+        srcDir: File,
+        dstDir: File,
+        srcRootCanon: File,
+        sandboxRootCanon: File,
+        depth: Int,
+        budget: LongArray,
+    ): Boolean {
+        if (depth > MAX_IMPORT_DEPTH) return false
+        val children = srcDir.listFiles() ?: return false
+        dstDir.mkdirs()
+        for (item in children) {
+            val canonItem = runCatching { item.canonicalFile }.getOrNull() ?: continue
+            if (!canonItem.path.startsWith(srcRootCanon.path + File.separator)) continue
+            val safeName = sanitizeImportFolderName(item.name) ?: continue
+            val dstItem = File(dstDir, safeName)
+            val dstCanon = runCatching { dstItem.canonicalFile }.getOrNull() ?: continue
+            if (!dstCanon.path.startsWith(sandboxRootCanon.path + File.separator)) continue
+            if (canonItem.isDirectory) {
+                copyThemeTree(canonItem, dstCanon, srcRootCanon, sandboxRootCanon, depth + 1, budget)
+            } else if (canonItem.isFile) {
+                val maxBytes = if (depth == 0 && canonItem.name == FILE) MAX_THEME_JSON_BYTES else MAX_ASSET_FILE_BYTES
+                val len = canonItem.length()
+                if (len < 0L || len > maxBytes || len > budget[0]) continue
+                canonItem.inputStream().use { input ->
+                    dstCanon.outputStream().use { output -> input.copyTo(output) }
+                }
+                budget[0] -= len
+            }
+        }
+        return File(dstDir, FILE).isFile
+    }
+
+    private const val MAX_IMPORT_DEPTH = 3
+    private const val MAX_THEME_IMPORT_BYTES = 64L * 1024L * 1024L
 
     /** Bench/test helper: copy the bundled sample theme into the log-adjacent theme folder. */
     fun seedSample(context: Context, assetDir: String = "test_theme", id: String = "test_theme"): Boolean {

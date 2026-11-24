@@ -241,10 +241,12 @@ class SettingsBackupServer(
             return Triple(200, mapOf("Content-Type" to "text/html; charset=utf-8", "Cache-Control" to "no-store"), codePage)
         }
         if (codePage != null && path == "/code" && request.method == "POST") return checkCode(request.body, clientIp)
-        val prefix = "/b/$token"
-        val authorized = path == prefix || path.startsWith("$prefix/")
-        if (!authorized) return notFound()
-        val route = path.removePrefix("$prefix/").trimEnd('/')
+        if (!path.startsWith("/b/")) return notFound()
+        val afterPrefix = path.removePrefix("/b/")
+        val slash = afterPrefix.indexOf('/')
+        val candidateToken = if (slash >= 0) afterPrefix.substring(0, slash) else afterPrefix
+        if (candidateToken.isEmpty() || !tokenMatches(token, candidateToken)) return notFound()
+        val route = if (slash >= 0) afterPrefix.substring(slash + 1).trimEnd('/') else ""
         return when {
             route.isEmpty() && request.method == "GET" ->
                 Triple(200, mapOf("Content-Type" to "text/html; charset=utf-8", "Cache-Control" to "no-store"), page)
@@ -343,8 +345,16 @@ class SettingsBackupServer(
             "Referrer-Policy" to "no-referrer",
         )
 
-        internal fun isAllowedClientAddress(address: InetAddress?): Boolean =
-            address != null && (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress)
+        internal fun isAllowedClientAddress(address: InetAddress?): Boolean {
+            if (address == null) return false
+            if (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress) return true
+            val raw = address.address
+            // IPv4 CGNAT / shared address space (100.64.0.0/10)
+            if (raw.size == 4 && (raw[0].toInt() and 0xff) == 100 && (raw[1].toInt() and 0xc0) == 64) return true
+            // IPv6 Unique Local Address (RFC 4193: fc00::/7)
+            if (raw.size == 16 && (raw[0].toInt() and 0xfe) == 0xfc) return true
+            return false
+        }
 
         internal fun isAllowedPostOrigin(request: RtspMessage.Request): Boolean {
             val origin = request.headers["origin"]?.trim()?.takeIf { it.isNotEmpty() } ?: return true

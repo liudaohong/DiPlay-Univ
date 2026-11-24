@@ -5,20 +5,22 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
-/** Starts the CarPlay host after boot when the user has enabled the startup option. */
+/** Starts the CarPlay host after boot or STR wake-up when the user has enabled the startup option. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        val elapsedMs = SystemClock.elapsedRealtime()
-        if (!BootBroadcastGuard.allowBootAction(action, elapsedMs, customBootHandled.get())) {
+        val nowMs = SystemClock.elapsedRealtime()
+        val hasSession = CarPlayBackgroundSession.hasSession()
+        val lastAt = lastCustomBootAtMs.get()
+        if (!BootBroadcastGuard.allowBootLaunch(action, hasSession, nowMs, lastAt)) {
             if (BootBroadcastGuard.isCustomBootAction(action)) {
-                Log.w(TAG, "Ignored custom boot action $action outside boot window (elapsed=${elapsedMs}ms)")
+                Log.w(TAG, "Ignored custom boot action $action (activeSession=$hasSession elapsed=${nowMs}ms)")
             }
             return
         }
-        if (BootBroadcastGuard.isCustomBootAction(action) && !customBootHandled.compareAndSet(false, true)) {
+        if (BootBroadcastGuard.isCustomBootAction(action) && !lastCustomBootAtMs.compareAndSet(lastAt, nowMs)) {
             return
         }
         val launchEnabled = AirPlayPersistence.loadAutoStartOnBoot(context)
@@ -47,6 +49,6 @@ class BootReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TAG = "xcertplay-boot"
-        val customBootHandled = AtomicBoolean(false)
+        val lastCustomBootAtMs = AtomicLong(-1L)
     }
 }

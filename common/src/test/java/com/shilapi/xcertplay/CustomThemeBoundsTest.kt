@@ -52,19 +52,27 @@ class CustomThemeBoundsTest {
     }
 
     @Test
-    fun importsExternalThemesIntoPrivateAppSandboxAndResetsExternalPath() {
+    fun importsUnicodeThemesAndSubdirectoriesIntoPrivateAppSandboxWithoutCollision() {
         val context = RuntimeEnvironment.getApplication()
         val externalRoot = temp.newFolder("external_tmp_themes")
-        val themeDir = File(externalRoot, "univ_sport").apply { mkdirs() }
-        File(themeDir, "theme.json").writeText("""{"id":"univ_sport","name":"UNI-V Sport","layers":[]}""")
-        File(themeDir, "bg.png").writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47))
+
+        val theme1 = File(externalRoot, "迈凯伦").apply { mkdirs() }
+        File(theme1, "theme.json").writeText("""{"id":"mclaren","name":"迈凯伦","layers":[]}""")
+        File(theme1, "images").apply { mkdirs() }
+        File(theme1, "images/bg.png").writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47))
+
+        val theme2 = File(externalRoot, "极简黑").apply { mkdirs() }
+        File(theme2, "theme.json").writeText("""{"id":"minimal_black","name":"极简黑","layers":[]}""")
+        File(theme2, "dial.png").writeBytes(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47))
 
         AirPlayPersistence.saveClusterThemeDir(context, externalRoot.absolutePath)
         val imported = CustomThemeRepository.importExternalThemesToSandbox(context)
 
-        assertEquals(1, imported)
+        assertEquals(2, imported)
         assertEquals("", AirPlayPersistence.loadClusterThemeDir(context))
-        assertTrue(File(context.filesDir, "themes/univ_sport/theme.json").isFile)
-        assertTrue(File(context.filesDir, "themes/univ_sport/bg.png").isFile)
+        assertTrue(File(context.filesDir, "themes/迈凯伦/theme.json").isFile)
+        assertTrue(File(context.filesDir, "themes/迈凯伦/images/bg.png").isFile)
+        assertTrue(File(context.filesDir, "themes/极简黑/theme.json").isFile)
+        assertTrue(File(context.filesDir, "themes/极简黑/dial.png").isFile)
     }
 }

@@ -100,7 +100,10 @@ class SettingsBackupServerTest {
 
             assertTrue(SettingsBackupServer.isAllowedClientAddress(InetAddress.getByName("127.0.0.1")))
             assertTrue(SettingsBackupServer.isAllowedClientAddress(InetAddress.getByName("192.168.43.10")))
+            assertTrue(SettingsBackupServer.isAllowedClientAddress(InetAddress.getByName("100.64.0.10")))
+            assertTrue(SettingsBackupServer.isAllowedClientAddress(InetAddress.getByName("fd00::1")))
             assertFalse(SettingsBackupServer.isAllowedClientAddress(InetAddress.getByName("8.8.8.8")))
+            assertFalse(SettingsBackupServer.isAllowedClientAddress(InetAddress.getByName("2001:4860:4860::8888")))
         } finally {
             server.stop()
         }

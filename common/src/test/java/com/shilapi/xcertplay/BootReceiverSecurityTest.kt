@@ -8,30 +8,31 @@ import org.junit.Test
 class BootReceiverSecurityTest {
     @Test
     fun systemBootCompletedIsAlwaysAllowed() {
-        assertTrue(BootBroadcastGuard.allowBootAction(Intent.ACTION_BOOT_COMPLETED, 600_000L, false))
-        assertTrue(BootBroadcastGuard.allowBootAction(Intent.ACTION_BOOT_COMPLETED, 3_600_000L, true))
+        assertTrue(BootBroadcastGuard.allowBootLaunch(Intent.ACTION_BOOT_COMPLETED, hasActiveSession = true, nowElapsedMs = 600_000L, lastCustomBootAtMs = 599_000L))
     }
 
     @Test
-    fun customHeadUnitBootActionsAreRestrictedToBootWindowAndSingleUse() {
-        assertTrue(BootBroadcastGuard.allowBootAction(BootBroadcastGuard.ACTION_BOOT_HU, 45_000L, false))
-        assertTrue(BootBroadcastGuard.allowBootAction(BootBroadcastGuard.ACTION_QUICKBOOT_POWERON, 180_000L, false))
+    fun customBootAllowsOvernightStrWakeupButBlocksActiveDriveAndRapidFlood() {
+        // Overnight STR wake-up (12 hours elapsedRealtime, no active session) MUST be allowed!
+        val twelveHoursMs = 12L * 3_600_000L
+        assertTrue(BootBroadcastGuard.allowBootLaunch(BootBroadcastGuard.ACTION_BOOT_HU, hasActiveSession = false, nowElapsedMs = twelveHoursMs, lastCustomBootAtMs = -1L))
+        // Next day STR wake-up (24 hours after previous wake-up) MUST also be allowed!
+        assertTrue(BootBroadcastGuard.allowBootLaunch(BootBroadcastGuard.ACTION_BOOT_HU, hasActiveSession = false, nowElapsedMs = twelveHoursMs * 3, lastCustomBootAtMs = twelveHoursMs))
 
-        // Mid-drive spoofing after 3 minutes is blocked.
-        assertFalse(BootBroadcastGuard.allowBootAction(BootBroadcastGuard.ACTION_BOOT_HU, 180_001L, false))
-        assertFalse(BootBroadcastGuard.allowBootAction(BootBroadcastGuard.ACTION_QUICKBOOT_POWERON, 900_000L, false))
+        // Mid-drive spoofing while CarPlay session is active is blocked.
+        assertFalse(BootBroadcastGuard.allowBootLaunch(BootBroadcastGuard.ACTION_BOOT_HU, hasActiveSession = true, nowElapsedMs = twelveHoursMs + 120_000L, lastCustomBootAtMs = -1L))
 
-        // Replay in the same process is blocked.
-        assertFalse(BootBroadcastGuard.allowBootAction(BootBroadcastGuard.ACTION_BOOT_HU, 30_000L, true))
+        // Rapid flood within 60s cooldown is blocked.
+        assertFalse(BootBroadcastGuard.allowBootLaunch(BootBroadcastGuard.ACTION_BOOT_HU, hasActiveSession = false, nowElapsedMs = twelveHoursMs + 10_000L, lastCustomBootAtMs = twelveHoursMs))
     }
 
     @Test
-    fun customShutdownActionRequiresPendingRestoreAndNonInteractiveScreen() {
-        assertTrue(BootBroadcastGuard.allowShutdownAction(Intent.ACTION_SHUTDOWN, pendingRestore = false, isScreenInteractive = true))
-        assertTrue(BootBroadcastGuard.allowShutdownAction(BootBroadcastGuard.ACTION_SHUTDOWN_HU, pendingRestore = true, isScreenInteractive = false))
+    fun bluetoothRestoreSupportsStrAndOrderedShutdownOnlyWhenPending() {
+        assertTrue(BootBroadcastGuard.allowBluetoothBootRestore(BootBroadcastGuard.ACTION_BOOT_HU, pendingRestore = true))
+        assertFalse(BootBroadcastGuard.allowBluetoothBootRestore(BootBroadcastGuard.ACTION_BOOT_HU, pendingRestore = false))
 
-        // Spoofed while driver is looking at an interactive screen -> rejected.
-        assertFalse(BootBroadcastGuard.allowShutdownAction(BootBroadcastGuard.ACTION_SHUTDOWN_HU, pendingRestore = true, isScreenInteractive = true))
-        assertFalse(BootBroadcastGuard.allowShutdownAction(BootBroadcastGuard.ACTION_SHUTDOWN_HU, pendingRestore = false, isScreenInteractive = false))
+        assertTrue(BootBroadcastGuard.allowShutdownAction(Intent.ACTION_SHUTDOWN, pendingRestore = false))
+        assertTrue(BootBroadcastGuard.allowShutdownAction(BootBroadcastGuard.ACTION_SHUTDOWN_HU, pendingRestore = true))
+        assertFalse(BootBroadcastGuard.allowShutdownAction(BootBroadcastGuard.ACTION_SHUTDOWN_HU, pendingRestore = false))
     }
 }
