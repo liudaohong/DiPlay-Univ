@@ -760,4 +760,6 @@ iPhone 出现提示时允许“信任”和使用 CarPlay。</string>
     <string name="issue_ios_long_uptime">13. 新版本 iOS 系统可能因为长时间未重启导致内部进程混乱，从而在软件运行时出现各种问题；如果遇到，可以重启一下 iPhone。</string>
     <string name="issue_follow_lamp_ios_night">14. 「跟随车灯状态」受 iOS 限制：当 iOS 判定为夜间时，CarPlay 会强制使用深色模式，此时车灯状态无法把它切回浅色。</string>
     <string name="issue_headlamp_dock_theme">15. 「跟随车灯状态」无法修改 Dock 的主题模式，这是 iOS 的限制。若想让 Dock 中的图标也跟随车灯状态切换，请在 CarPlay 设置 → 自定义图标中，分别选择「深色」和「自动」。</string>
+    <string name="mtk_low_latency_decoding">联发科低延迟解码（实验性）</string>
+    <string name="mtk_low_latency_decoding_description">为主屏请求 MediaTek 低延迟与无重排解码模式（适配 22 款 UNI-V 等联发科车机）；若解码器拒绝会自动回退标准模式。</string>
 </resources>

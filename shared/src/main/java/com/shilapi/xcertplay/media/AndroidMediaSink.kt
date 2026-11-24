@@ -344,6 +344,7 @@ class AndroidMediaSink(
     private val videoWidth: Int = 1280,
     private val videoHeight: Int = 720,
     private val preferSoftwareHevcDecoder: Boolean = false,
+    private val mtkDecoderTuning: Boolean = false,
     private val advancedAudioChannelMapping: Boolean = false,
     private val audioFocusEnabled: Boolean = false,
     private val mediaChannel: Int = 0,
@@ -1301,6 +1302,7 @@ private const val MAIN_STREAM_TYPE = 110
         if (type == CARD_STREAM_TYPE) CARD_DECODER_WIDTH else videoWidth,
         if (type == CARD_STREAM_TYPE) CARD_DECODER_HEIGHT else videoHeight,
         preferSoftwareHevcDecoder,
+        mtkDecoderTuning = mtkDecoderTuning && type == MAIN_STREAM_TYPE,
         allowSoftware = type != MAIN_STREAM_TYPE,
         requestKeyFrame = { requestVideoRecovery(type) },
         report = { videoDiagnosticHandlers[type]?.invoke(it) },
@@ -1340,6 +1342,7 @@ private class VideoDecoder(
     private val width: Int,
     private val height: Int,
     private val preferSoftwareHevcDecoder: Boolean,
+    private val mtkDecoderTuning: Boolean,
     /** False for the main screen: its decoder must use hardware only. */
     private val allowSoftware: Boolean,
     private val requestKeyFrame: () -> Unit,
@@ -1386,6 +1389,7 @@ private class VideoDecoder(
      */
     private var catchingUp = false
     private var skippedWhileCatchingUp = 0
+    private val backlogRecovery = VideoBacklogRecovery()
     private var duplicateConfigLogged = false
     private var failureReports = 0
     private val referenceChain = VideoReferenceChain()
@@ -1440,13 +1444,19 @@ private class VideoDecoder(
                     when (job) {
                         is VideoJob.Config -> configureDecoder(job)
                         is VideoJob.Frame -> {
-                            val ageNs = System.nanoTime() - job.receivedNs
-                            // Behind, not broken: every frame is still here and the reference chain
-                            // is intact, so feed all of them and let drainOutput skip the stale
-                            // displays. See beginCatchUp for why the old discard-and-rebuild path
-                            // was replaced. Genuine frame loss still arrives as VideoJob.Resync
-                            // below and keeps its rebuild.
-                            if (ageNs > maxFrameAgeNs) beginCatchUp(ageNs / 1_000_000)
+                            val nowNs = System.nanoTime()
+                            val backlog = queue.backlogAfterCurrent()
+                            // Behind, not broken: distinguish genuine growing backlog from a
+                            // momentary Wi-Fi burst before skipping stale displays.
+                            if (backlogRecovery.observe(
+                                    nowNs = nowNs,
+                                    currentReceivedNs = job.receivedNs,
+                                    pendingFrames = backlog.pendingFrames,
+                                    newestPendingReceivedNs = backlog.newestPendingReceivedNs,
+                                )
+                            ) {
+                                beginCatchUp((nowNs - job.receivedNs) / 1_000_000)
+                            }
                             feed(job.nalus)
                         }
                         is VideoJob.SurfaceChanged -> changeSurface(job.surface)
@@ -1494,6 +1504,7 @@ private class VideoDecoder(
         }
         lastConfig = config
         duplicateConfigLogged = false
+        backlogRecovery.reset()
         releaseDecoder()
         referenceChain.reset()
         val surface = outputSurface ?: placeholderSurface ?: return
@@ -1513,10 +1524,21 @@ private class VideoDecoder(
         }
         // Some vendor decoders (e.g. MediaTek c2.mtk.avc.decoder) reject the tuned
         // parameters with BAD_VALUE. Fall back to a minimal format, then to software.
-        val attempts = mutableListOf(
-            DecoderAttempt(codecName = null, tuned = true),
-            DecoderAttempt(codecName = null, tuned = false),
-        )
+        val attempts = mutableListOf<DecoderAttempt>()
+        if (mtkDecoderTuning) {
+            MtkDecoderTuning.codec2LowLatencyDecoderName(mime)?.let { c2Name ->
+                attempts += DecoderAttempt(codecName = c2Name, tuned = true, mtkMode = MtkDecoderMode.NONE)
+            }
+            if (MtkDecoderTuning.legacyAcodecDecoderName(mime) != null) {
+                for (mode in MtkDecoderMode.LOW_LATENCY_NO_REORDER.attempts()) {
+                    if (mode != MtkDecoderMode.NONE) {
+                        attempts += DecoderAttempt(codecName = null, tuned = true, mtkMode = mode)
+                    }
+                }
+            }
+        }
+        attempts += DecoderAttempt(codecName = null, tuned = true)
+        attempts += DecoderAttempt(codecName = null, tuned = false)
         softwareDecoderName(mime)?.let {
             if (allowSoftware) attempts += DecoderAttempt(it, tuned = false)
         }
@@ -1563,7 +1585,11 @@ private class VideoDecoder(
         }
     }
 
-    private data class DecoderAttempt(val codecName: String?, val tuned: Boolean)
+    private data class DecoderAttempt(
+        val codecName: String?,
+        val tuned: Boolean,
+        val mtkMode: MtkDecoderMode = MtkDecoderMode.NONE,
+    )
 
     private fun buildFormat(mime: String, csd: List<ByteArray>, tuned: Boolean): MediaFormat =
         MediaFormat.createVideoFormat(mime, width, height).apply {
@@ -1589,8 +1615,15 @@ private class VideoDecoder(
                 codec.codecInfo.getCapabilitiesForType(mime).isFeatureSupported("low-latency")) {
                 format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             }
+            val effectiveMtk = appliedMtkDecoderMode(attempt.mtkMode, codec.name)
+            for (key in effectiveMtk.formatKeys()) {
+                format.setInteger(key, 1)
+            }
             codec.configure(format, surface, null, 0)
             codec.start()
+            if (effectiveMtk != MtkDecoderMode.NONE) {
+                report("video decoder mtkMode=${effectiveMtk.diagnosticName} name=${codec.name}")
+            }
             // SurfaceView video is invisible to Window FrameMetrics. This callback is the
             // public source of truth for frames actually rendered onto the output surface.
             runCatching {
@@ -1835,6 +1868,7 @@ private class VideoDecoder(
 
     private fun finishCatchUp() {
         catchingUp = false
+        backlogRecovery.reset()
         val skipped = skippedWhileCatchingUp
         skippedWhileCatchingUp = 0
         report("video catch-up done: $skipped frame(s) not displayed, no keyframe wait")

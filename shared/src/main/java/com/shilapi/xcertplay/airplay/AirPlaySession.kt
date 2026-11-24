@@ -88,6 +88,7 @@ class AirPlaySession(
     private var pendingViewAreaIndex: Int? = null
     private val firstTouchSendLogged = AtomicBoolean(false)
     private val touchSendFailureLogged = AtomicBoolean(false)
+    private val touchSlots = AirPlayTouchSlots(AirPlayHid.TOUCH_CONTACTS)
     private val ntp = NtpClock()
     private var keepAliveSocket: DatagramSocket? = null
     private var keepAliveThread: Thread? = null
@@ -259,7 +260,8 @@ class AirPlaySession(
 
     fun sendTouch(contacts: List<AirPlayContact>): Boolean {
         if (closed.get()) return false
-        val scaled = contacts.map {
+        val slotted = touchSlots.assign(contacts)
+        val scaled = slotted.map {
             it.copy(x = it.x * config.main.widthPixels, y = it.y * config.main.heightPixels)
         }
         val report = AirPlayHid.touchReport(scaled)
@@ -399,6 +401,7 @@ class AirPlaySession(
         )
 
     private fun runControl() {
+        runCatching { socket.tcpNoDelay = true }
         com.shilapi.xcertplay.network.TcpLiveness.configure(socket) { debugLog(it) }
         val input = BufferedInputStream(socket.getInputStream())
         val output = BufferedOutputStream(socket.getOutputStream())

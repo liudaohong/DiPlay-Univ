@@ -30,10 +30,38 @@ internal class VideoDecodeQueue(
 ) {
     private val jobs = LinkedBlockingQueue<VideoJob>()
 
+    data class Backlog(val pendingFrames: Int, val newestPendingReceivedNs: Long?)
+
+    /** Called by the sole consumer after taking its current frame. Control jobs end this chain. */
+    @Synchronized fun backlogAfterCurrent(): Backlog {
+        var frames = 0
+        var newest: Long? = null
+        for (job in jobs) {
+            if (job !is VideoJob.Frame) break
+            frames++
+            newest = newest?.let { maxOf(it, job.receivedNs) } ?: job.receivedNs
+        }
+        return Backlog(frames, newest)
+    }
+
     @Synchronized fun offer(job: VideoJob) {
         if (job is VideoJob.Frame) {
-            val frames = jobs.filterIsInstance<VideoJob.Frame>()
-            if (frames.size >= maxFrames || frames.sumOf { it.nalus.size.toLong() } + job.nalus.size > maxBytes) {
+            var frames = 0
+            var bytes = job.nalus.size.toLong()
+            var overflow = maxFrames <= 0 || bytes > maxBytes
+            if (!overflow) {
+                for (pending in jobs) {
+                    if (pending is VideoJob.Frame) {
+                        frames++
+                        bytes += pending.nalus.size.toLong()
+                        if (frames >= maxFrames || bytes > maxBytes) {
+                            overflow = true
+                            break
+                        }
+                    }
+                }
+            }
+            if (overflow) {
                 discardFrames()
                 jobs.offer(VideoJob.Resync)
             }

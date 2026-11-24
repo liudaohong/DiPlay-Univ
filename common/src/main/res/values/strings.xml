@@ -762,4 +762,6 @@ CarPlay, right here on your car display.</string>
     <string name="issue_ios_long_uptime">13. A long-running iOS uptime can leave internal processes confused and cause a variety of problems while this app is running. If that happens, restart the iPhone.</string>
     <string name="issue_follow_lamp_ios_night">14. \"Follow headlights\" is limited by iOS: while iOS considers it night, CarPlay forces dark mode and the headlight state cannot switch it back to light.</string>
     <string name="issue_headlamp_dock_theme">15. \"Follow headlights\" cannot change the Dock theme; this is an iOS limitation. To make the Dock icons follow the headlight state too, open CarPlay Settings → Customize Icons and choose \"Dark\" and \"Automatic\".</string>
+    <string name="mtk_low_latency_decoding">Low-latency decoding (MediaTek)</string>
+    <string name="mtk_low_latency_decoding_description">Experimental. Request MediaTek low-latency and no-reorder decoder modes on the main screen; falls back automatically if rejected.</string>
 </resources>

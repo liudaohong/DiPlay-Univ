@@ -41,6 +41,7 @@ object AirPlayPersistence {
     private const val KEY_DISPLAY_SCALE_TENTHS = "display_scale_tenths"
     private const val KEY_HEVC_ENABLED = "hevc_enabled"
     private const val KEY_HEVC_SOFTWARE_DECODER = "hevc_software_decoder"
+    private const val KEY_MTK_DECODER_TUNING = "mtk_decoder_tuning"
     private const val KEY_ADVANCED_AUDIO_CHANNEL_MAPPING = "advanced_audio_channel_mapping"
     private const val KEY_AUDIO_FOCUS_ENABLED = "audio_focus_enabled"
     /**
@@ -223,6 +224,16 @@ object AirPlayPersistence {
     fun saveHevcSoftwareDecoderEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_HEVC_SOFTWARE_DECODER, enabled)
+            .apply()
+    }
+
+    fun loadMtkDecoderTuning(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_MTK_DECODER_TUNING, false)
+
+    fun saveMtkDecoderTuning(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_MTK_DECODER_TUNING, enabled)
             .apply()
     }
 

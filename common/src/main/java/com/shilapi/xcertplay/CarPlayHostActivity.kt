@@ -5304,6 +5304,14 @@ class CarPlayHostActivity : ComponentActivity() {
         } else {
             null
         }
+        val effectiveHevc = HevcSupport.usable(
+            requested = hevcEnabled,
+            softwareChosen = hevcSoftwareDecoderEnabled,
+            decoders = HevcSupport.decoders(),
+        )
+        if (hevcEnabled && !effectiveHevc) {
+            appendLog("HEVC requested without hardware decoder; falling back to H.264")
+        }
         return AirPlayConfig(
             deviceName = "DiPlay",
             deviceId = DiPlayBootstrap.deviceId(airPlayIdentity),
@@ -5313,7 +5321,7 @@ class CarPlayHostActivity : ComponentActivity() {
             cluster = clusterDisplay,
             clusterCard = cardDisplay,
             rightHandDrive = rightHandDrive,
-            hevc = hevcEnabled,
+            hevc = effectiveHevc,
             microphone = microphoneAvailable,
             manufacturer = normalizedManufacturer(),
             model = normalizedModel(),
@@ -5491,6 +5499,7 @@ class CarPlayHostActivity : ComponentActivity() {
             videoWidth = videoWidth,
             videoHeight = videoHeight,
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
+            mtkDecoderTuning = AirPlayPersistence.loadMtkDecoderTuning(this),
             advancedAudioChannelMapping = advancedAudioChannelMapping,
             audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
             // Diagnostic tap: only the instruction-card stream is written; the recorder is

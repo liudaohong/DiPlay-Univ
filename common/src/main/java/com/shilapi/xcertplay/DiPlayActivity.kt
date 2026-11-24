@@ -803,6 +803,12 @@ class DiPlayActivity : ComponentActivity() {
                 toast(getString(R.string.main_surface_view_reconnect))
             }
             toggle(card, getString(R.string.efficient_video), getString(R.string.use_hevc_leave_off_for_the_widest_head_unit_compatibility), AirPlayPersistence.loadHevcEnabled(this)) { AirPlayPersistence.saveHevcEnabled(this, it) }
+            toggle(
+                card,
+                getString(R.string.mtk_low_latency_decoding),
+                getString(R.string.mtk_low_latency_decoding_description),
+                AirPlayPersistence.loadMtkDecoderTuning(this),
+            ) { AirPlayPersistence.saveMtkDecoderTuning(this, it) }
             toggle(card, getString(R.string.right_hand_drive), getString(R.string.place_carplay_s_controls_closer_to_the_driver), AirPlayPersistence.loadRightHandDrive(this)) { AirPlayPersistence.saveRightHandDrive(this, it) }
             toggle(card, getString(R.string.full_screen), getString(R.string.hide_the_car_s_system_bars_while_carplay_is_open), AirPlayPersistence.loadHideTopBar(this) && AirPlayPersistence.loadHideBottomBar(this)) {
                 AirPlayPersistence.saveHideTopBar(this, it); AirPlayPersistence.saveHideBottomBar(this, it)
