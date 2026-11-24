@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+
+    <string name="custom_number_error">请输入 %1$d–%2$d 的整数。</string>
+
+</resources>

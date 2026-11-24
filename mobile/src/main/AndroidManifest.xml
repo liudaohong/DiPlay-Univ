@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:name="com.shilapi.xcertplay.DiPlayApp"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@drawable/ic_carplay"
+        android:label="@string/mobile_app_name"
+        android:localeConfig="@xml/locales_config"
+        android:roundIcon="@drawable/ic_carplay"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Xcertplay">
+
+        <!-- Headlamp property source for CarPlay "follow headlights" (CarLampSource reflection).
+             required=false: the car_mode fallback still works if the ROM has no android.car. -->
+        <uses-library
+            android:name="android.car"
+            android:required="false" />
+
+        <!-- The car's property manager only answers the process named com.wt.n2048 on this unit;
+             the main process binds here for the headlamp value (CarPlay "Follow headlights"). -->
+        <service
+            android:name="com.shilapi.xcertplay.daynight.LampReaderService"
+            android:exported="false"
+            android:process="com.wt.n2048" />
+
+        <receiver
+            android:name="com.shilapi.xcertplay.BootReceiver"
+            android:enabled="true"
+            tools:replace="android:enabled" />
+
+        <service android:name="com.shilapi.xcertplay.shared.MyCarAppService" tools:node="remove" />
+        <meta-data android:name="androidx.car.app.minCarApiLevel" tools:node="remove" />
+    </application>
+
+</manifest>

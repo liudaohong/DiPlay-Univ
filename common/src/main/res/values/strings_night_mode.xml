@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carplay_night_mode">CarPlay day/night mode</string>
+    <string name="carplay_night_system">Follow Android system</string>
+
+    <string name="carplay_night_day">Always day</string>
+    <string name="carplay_night_night">Always night</string>
+    <string name="carplay_night_lamp">Follow headlights</string>
+    <string name="carplay_night_hint">The mode applies to the main picture immediately. The dock is drawn by the iPhone and refreshes on the next CarPlay connection.</string>
+
+    <string name="carplay_night_lamp_note">Follow headlights: lamps on → dark, off → light.</string>
+</resources>

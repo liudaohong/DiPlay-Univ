@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="carplay_night_mode">CarPlay 日夜模式</string>
+    <string name="carplay_night_system">跟随 Android 系统</string>
+
+    <string name="carplay_night_day">固定日间</string>
+    <string name="carplay_night_night">固定夜间</string>
+    <string name="carplay_night_lamp">跟随车灯状态</string>
+    <string name="carplay_night_hint">切换模式会立即应用到主画面；程序坞由 iPhone 绘制，会在下次连接 CarPlay 时刷新。</string>
+
+    <string name="carplay_night_lamp_note">跟随车灯：大灯开 → 深色，大灯关 → 浅色。</string>
+</resources>

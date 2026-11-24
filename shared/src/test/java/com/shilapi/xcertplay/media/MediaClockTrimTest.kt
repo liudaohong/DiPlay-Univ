@@ -1,0 +1,143 @@
+package com.shilapi.xcertplay.media
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class MediaClockTrimTest {
+    @Test
+    fun `a track pinned at capacity drops a stale slow trim`() {
+        // 57 600 frames is the 1.2 s track used with the 1000 ms music buffer.
+        val trim = MediaClockTrim(
+            sampleRate = 48_000, targetFrames = 48_000, integral = -0.015, capacityFrames = 57_600,
+        )
+
+        trim.sample(queuedFrames = 57_000, nowNs = 1_000_000_000)
+        assertEquals("one burst must not reset", 0, trim.resetCount)
+
+        trim.sample(queuedFrames = 57_000, nowNs = 10_000_000_000)
+        assertEquals(1, trim.resetCount)
+        val before = trim.rate
+        val rate = trim.rateDue(nowNs = 10_000_000_000)
+        assertNotNull(rate)
+        assertTrue("expected a speed-up from $before, got $rate", rate!! > before)
+    }
+
+    @Test
+    fun `an empty track drops a stale fast trim`() {
+        val trim = MediaClockTrim(
+            sampleRate = 48_000, targetFrames = 48_000, integral = 0.015, capacityFrames = 57_600,
+        )
+
+        trim.sample(queuedFrames = 1_000, nowNs = 1_000_000_000)
+        trim.sample(queuedFrames = 1_000, nowNs = 10_000_000_000)
+
+        assertEquals(1, trim.resetCount)
+        val before = trim.rate
+        val rate = trim.rateDue(nowNs = 10_000_000_000)
+        assertNotNull(rate)
+        assertTrue("expected a slow-down from $before, got $rate", rate!! < before)
+    }
+
+    @Test
+    fun `a level burst below capacity does not reset the learn`() {
+        val trim = MediaClockTrim(
+            sampleRate = 48_000, targetFrames = 48_000, integral = -0.005, capacityFrames = 57_600,
+        )
+
+        // 4 % over target but only 87 % of capacity: exactly the post-gap burst that used to
+        // trigger the old 2 % reset every few seconds.
+        trim.sample(queuedFrames = 50_000, nowNs = 1_000_000_000)
+        trim.sample(queuedFrames = 50_000, nowNs = 61_000_000_000)
+
+        assertEquals(0, trim.resetCount)
+    }
+
+    @Test
+    fun `a small level error holds the rate`() {
+        val trim = MediaClockTrim(
+            sampleRate = 48_000, targetFrames = 48_000, integral = -0.005, capacityFrames = 57_600,
+        )
+
+        trim.sample(queuedFrames = 49_000, nowNs = 1_000_000_000)
+
+        assertNull(trim.rateDue(nowNs = 1_000_000_000))
+    }
+
+    @Test
+    fun `a sustained level error moves the rate`() {
+        val trim = MediaClockTrim(
+            sampleRate = 48_000, targetFrames = 48_000, integral = 0.0, capacityFrames = 57_600,
+        )
+
+        trim.sample(queuedFrames = 44_000, nowNs = 1_000_000_000)
+
+        val rate = trim.rateDue(nowNs = 1_000_000_000)
+        assertNotNull(rate)
+        assertTrue("expected a slow-down, got $rate", rate!! < 48_000)
+    }
+
+    @Test
+    fun `a dropped frame forces the trim up even when the level looks normal`() {
+        val trim = MediaClockTrim(
+            sampleRate = 48_000, targetFrames = 48_000, integral = -0.015, capacityFrames = 57_600,
+        )
+        val before = trim.rate
+
+        trim.noteOverflow(nowNs = 1_000_000_000)
+        assertEquals(1, trim.resetCount)
+        // The averaged level is allowed to look normal here; the forced window must still act.
+        trim.sample(queuedFrames = 50_000, nowNs = 1_000_000_000)
+
+        val rate = trim.rateDue(nowNs = 1_000_000_000)
+        assertNotNull(rate)
+        assertTrue("expected a speed-up from $before, got $rate", rate!! > before)
+    }
+
+    @Test
+    fun `undecoded packet backlog does not make a draining track look healthy`() {
+        val trim = MediaClockTrim(
+            sampleRate = 48_000, targetFrames = 48_000, integral = 0.0, capacityFrames = 57_600,
+        )
+
+        // Only 0.6 s of PCM is actually playable; 2 s of compressed packets are still in the
+        // decoder queue. The old code counted both and sped the track up while it was starving.
+        trim.sample(queuedFrames = 28_000, nowNs = 1_000_000_000, compressedFrames = 96_000)
+
+        val rate = trim.rateDue(nowNs = 1_000_000_000)
+        assertNotNull(rate)
+        assertTrue("expected a slow-down from a draining track, got $rate", rate!! < 48_000)
+    }
+
+    @Test
+    fun `an underrun reset moves the rate toward slower without a pitch jump`() {
+        val trim = MediaClockTrim(
+            sampleRate = 48_000, targetFrames = 48_000, integral = 0.015, capacityFrames = 57_600,
+        )
+        val before = trim.rate
+
+        trim.noteUnderrun(nowNs = 1_000_000_000)
+
+        val maxStep = (48_000 * MediaClockTrim.MAX_RATE_STEP).toInt() + 1
+        assertTrue("expected a slow-down from $before", trim.rate < before)
+        assertTrue("underrun reset jumped ${before - trim.rate} Hz", before - trim.rate <= maxStep)
+    }
+
+    @Test
+    fun `an overflow reset is slew limited instead of jumping in pitch`() {
+        val trim = MediaClockTrim(
+            sampleRate = 48_000, targetFrames = 48_000, integral = -0.015, capacityFrames = 57_600,
+        )
+        val before = trim.rate
+
+        trim.noteOverflow(nowNs = 1_000_000_000)
+
+        val maxStep = (48_000 * MediaClockTrim.MAX_RATE_STEP).toInt() + 1
+        assertTrue(
+            "reset jumped ${trim.rate - before} Hz; expected <= $maxStep",
+            trim.rate - before <= maxStep,
+        )
+    }
+}

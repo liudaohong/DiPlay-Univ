@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cluster_crop_adjust">Full-mirror dashboard picture adjustment</string>
+    <string name="cluster_crop_title">Full-mirror dashboard picture adjustment</string>
+    <string name="cluster_crop_hint">Define a display frame on the dashboard: left/top/width/height set the frame position and size, and the full CarPlay picture is scaled to fit inside it, keeping its aspect ratio and centred (no crop, no distortion). Applied automatically.</string>
+    <string name="cluster_crop_left">Frame left</string>
+    <string name="cluster_crop_top">Frame top</string>
+    <string name="cluster_crop_width">Frame width</string>
+    <string name="cluster_crop_height">Frame height</string>
+    <string name="cluster_crop_reset">重置</string>
+    <string name="cluster_crop_done">完成</string>
+    <string name="auto_fly_screen">自动飞屏</string>
+    <string name="auto_fly_screen_desc">勾选后连接成功进入 CarPlay 界面时自动投屏，内容跟随“仪表盘内容”设置；不勾选则连接后不会自动投屏，手动三指滑动仍可投屏。</string>
+    <string name="cluster_auto_nav_view">Auto-switch dashboard on navigation</string>
+    <string name="cluster_auto_nav_view_desc">When navigation starts, project the dashboard in nav-only mode; when it ends, return to the whole-screen mirror. Applies to this run only and never changes the display choice above. A manual three-finger choice pauses the automatic switch until the next navigation start or end.</string>
+
+
+    <string name="auto_project_retry">自动投屏失败时自动重试</string>
+    <string name="auto_project_retry_desc">冷启动时车机可能丢弃首次投屏指令（仪表盘不亮，手动滑动才生效）。勾选后会重试：默认只发“静默重申”（不会触发车机语音播报）；只有在首次投屏等不到车机就绪、被判定为过早发出时，才补发一次完整激活序列（此时车机可能播报一次“全屏镜像/导航已开启”）。司机一旦手动滑动立即停止重试。</string>
+    <string name="oem_label_home">车辆图标名称（OEM 标签）</string>
+    <string name="cluster_mirror_left_crop">整机镜像左侧裁剪</string>
+    <string name="cluster_mirror_left_crop_format">%1$d px</string>
+    <string name="cluster_no_display_hint">未检测到仪表盘投影显示（模拟器或未连接车机时不可见），以下设置仍可预先配置，车机连接后自动生效。</string>
+    <string name="usb_diagnostics">USB 诊断（写入日志）</string>
+    <string name="usb_diagnostics_done">USB 诊断已写入日志，请用“保存诊断报告”导出后发送</string>
+    <string name="vpn_root_grant">有线连接修复：root 授权 VPN</string>
+</resources>

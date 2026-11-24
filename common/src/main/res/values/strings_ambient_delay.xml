@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+
+    <string name="custom_number_error">Enter an integer from %1$d to %2$d.</string>
+
+</resources>

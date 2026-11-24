@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cluster_crop_adjust">整机镜像仪表盘画面调整</string>
+    <string name="cluster_crop_title">整机镜像仪表盘画面调整</string>
+    <string name="cluster_crop_hint">在仪表盘上定义一个显示方框：左偏移/上偏移/宽度/高度确定方框位置和大小，投屏画面将完整等比缩放并居中显示在方框内（不裁剪、不变形）。调整后自动应用。</string>
+    <string name="cluster_crop_left">方框左位置</string>
+    <string name="cluster_crop_top">方框上位置</string>
+    <string name="cluster_crop_width">方框宽度</string>
+    <string name="cluster_crop_height">方框高度</string>
+    <string name="cluster_crop_reset">重置</string>
+    <string name="cluster_crop_done">完成</string>
+    <string name="auto_fly_screen">自动飞屏</string>
+    <string name="auto_fly_screen_desc">勾选后连接成功进入 CarPlay 界面时自动投屏，内容跟随“仪表盘内容”设置；不勾选则连接后不会自动投屏，手动三指滑动仍可投屏。</string>
+    <string name="cluster_auto_nav_view">导航时自动切换仪表视图</string>
+    <string name="cluster_auto_nav_view_desc">进入导航时自动投屏为“仅导航”画面，退出导航后自动回到“整机镜像”。只对本次应用使用生效，不会修改上面的“CarPlay 仪表盘显示界面”设置；手动三指选择会暂停自动切换，直到下一次导航开始或结束。</string>
+
+
+    <string name="auto_project_retry">自动投屏失败时自动重试</string>
+    <string name="auto_project_retry_desc">冷启动时车机可能丢弃首次投屏指令（仪表盘不亮，手动滑动才生效）。勾选后会重试：默认只发“静默重申”（不会触发车机语音播报）；只有在首次投屏等不到车机就绪、被判定为过早发出时，才补发一次完整激活序列（此时车机可能播报一次“全屏镜像/导航已开启”）。司机一旦手动滑动立即停止重试。</string>
+    <string name="oem_label_home">车辆图标名称（OEM 标签）</string>
+    <string name="cluster_mirror_left_crop">整机镜像左侧裁剪</string>
+    <string name="cluster_mirror_left_crop_format">%1$d px</string>
+    <string name="usb_diagnostics">USB 诊断（写入日志）</string>
+    <string name="usb_diagnostics_done">USB 诊断已写入日志，请用“保存诊断报告”导出后发送</string>
+    <string name="vpn_root_grant">有线连接修复：root 授权 VPN</string>
+</resources>

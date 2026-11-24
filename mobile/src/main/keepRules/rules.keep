@@ -1,0 +1,41 @@
+# Add project specific R8 rules here.
+# AGP will combine all keep rule files in src/main/keepRules to pass to R8
+#
+# For more details, see
+#   https://d.android.com/r/tools/r8/keep-rules
+
+# JNI: the native libraries export Java_com_shilapi_* symbols and the runtime
+# binds native methods by name, so the declaring classes and method names must
+# never be renamed or removed.
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
+}
+
+# JNI: shared/src/main/jni/linux_i2c_jni.c resolves this exception through
+# FindClass by its class-name string and calls its (int, String) constructor.
+-keep class com.shilapi.xcertplay.transport.LinuxI2cNativeException {
+    public <init>(int, java.lang.String);
+}
+
+# app_process entry points: the head unit's adb shell starts these classes by
+# name (`CLASSPATH=<apk> app_process /system/bin <fqcn>`), so no Java code calls
+# main() and R8 dropped it in release builds. Keeping the class also keeps its
+# name, which is what the command string interpolates.
+-keep class com.shilapi.xcertplay.transport.IphoneUsbGrantTool {
+    public static void main(java.lang.String[]);
+}
+-keep class com.shilapi.xcertplay.hud.BydClusterSongTool {
+    public static void main(java.lang.String[]);
+}
+-keep class com.shilapi.xcertplay.hud.Byd13CatalogProbeMain {
+    public static void main(java.lang.String[]);
+}
+
+# Readable crash traces from the field: keep line numbers and the original
+# source file name.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+
+# Generic signatures, nested-class attributes and annotations are consumed by
+# Compose and AndroidX runtime code.
+-keepattributes Signature,InnerClasses,EnclosingMethod,*Annotation*

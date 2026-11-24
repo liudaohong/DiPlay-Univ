@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "id": "red_white_sport",
+  "name": "红白运动表",
+  "description": "左白右红运动风格，黑色径向底，左半弧速度表+右整圆转速表",
+  "layers": [
+    {
+      "id": "bg",
+      "type": "brush",
+      "z": 0,
+      "dst": [
+        0,
+        0,
+        1920,
+        720
+      ],
+      "alpha": 1,
+      "paint": {
+        "kind": "radial",
+        "colors": [
+          "#0A0E18",
+          "#05060A",
+          "#000000"
+        ],
+        "from": [
+          0,
+          0
+        ],
+        "to": [
+          0,
+          720
+        ],
+        "center": [
+          960,
+          360
+        ],
+        "radius": 1200
+      }
+    },
+    {
+      "id": "nav",
+      "type": "live",
+      "z": 30,
+      "dst": [
+        480,
+        175,
+        920,
+        400
+      ],
+      "alpha": 1,
+      "slot": "nav",
+      "scale": 1
+    },
+    {
+      "id": "speed",
+      "type": "gauge",
+      "z": 60,
+      "dst": [
+        0,
+        0,
+        1920,
+        720
+      ],
+      "alpha": 1,
+      "gauge": {
+        "data": "speed",
+        "center": [
+          249,
+          312
+        ],
+        "radius": 200,
+        "start": 135,
+        "sweep": 270,
+        "min": 0,
+        "max": 220,
+        "thickness": 16,
+        "colors": [
+          "#FFFFFF",
+          "#D8ECFF"
+        ],
+        "track": "#1F2230",
+        "ticks": 22,
+        "labels": [
+          0,
+          40,
+          80,
+          120,
+          160,
+          200,
+          220
+        ],
+        "labelColor": "#E8ECF5",
+        "labelSize": 20
+      }
+    },
+    {
+      "id": "rpm",
+      "type": "gauge",
+      "z": 61,
+      "dst": [
+        0,
+        0,
+        1920,
+        720
+      ],
+      "alpha": 1,
+      "gauge": {
+        "data": "rpm",
+        "center": [
+          1663,
+          312
+        ],
+        "radius": 220,
+        "start": 90,
+        "sweep": -360,
+        "min": 0,
+        "max": 5500,
+        "thickness": 18,
+        "colors": [
+          "#FF2A2A",
+          "#FF6B35"
+        ],
+        "track": "#3A0E0E",
+        "ticks": 22,
+        "labels": [
+          0,
+          1000,
+          2000,
+          3000,
+          4000,
+          5000
+        ],
+        "labelColor": "#FF7A5C",
+        "labelSize": 20
+      }
+    },
+    {
+      "id": "card112",
+      "type": "live",
+      "z": 30,
+      "dst": [
+        0,
+        0,
+        750,
+        440
+      ],
+      "alpha": 1,
+      "slot": "card112",
+      "scale": 0.7
+    }
+  ]
+}
