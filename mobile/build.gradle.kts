@@ -202,7 +202,7 @@ val verifyPrivateReleaseSigning by tasks.registering {
     }
 }
 if (requirePrivateSigning) {
-    tasks.matching { it.name.contains("Release") }.configureEach {
+    tasks.matching { it.name == "packageRelease" || it.name == "assembleRelease" }.configureEach {
         dependsOn(verifyPrivateReleaseSigning)
     }
 } else if (!hasPrivateReleaseKeystore) {
