@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Build
 import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
 import com.shilapi.xcertplay.airplay.AirPlayPhysicalSizeBasis
@@ -467,15 +468,15 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadRemoteMfiToken(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_REMOTE_MFI_TOKEN, null)
-            .orEmpty()
+    fun loadRemoteMfiToken(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return loadSecretString(prefs, KEY_REMOTE_MFI_TOKEN).orEmpty()
+    }
 
     fun saveRemoteMfiToken(context: Context, token: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_REMOTE_MFI_TOKEN, token)
-            .apply()
+        val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        putSecretString(editor, KEY_REMOTE_MFI_TOKEN, token)
+        editor.apply()
     }
 
     fun loadWirelessHotspotMode(context: Context): WirelessHotspotMode {
@@ -498,14 +499,16 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("existing_wifi_ssid", "").orEmpty()
 
-    fun loadExistingWifiPassphrase(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString("existing_wifi_passphrase", "").orEmpty()
+    fun loadExistingWifiPassphrase(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return loadSecretString(prefs, "existing_wifi_passphrase").orEmpty()
+    }
 
     fun saveExistingWifiCredentials(context: Context, ssid: String, passphrase: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("existing_wifi_ssid", ssid)
-            .putString("existing_wifi_passphrase", passphrase).apply()
+        putSecretString(editor, "existing_wifi_passphrase", passphrase)
+        editor.apply()
     }
 
     fun loadWifiP2pPreferredChannel(context: Context): Int = runCatching {
@@ -531,15 +534,15 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadManualHotspotPassphrase(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_MANUAL_HOTSPOT_PASSPHRASE, null)
-            .orEmpty()
+    fun loadManualHotspotPassphrase(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return loadSecretString(prefs, KEY_MANUAL_HOTSPOT_PASSPHRASE).orEmpty()
+    }
 
     fun saveManualHotspotPassphrase(context: Context, passphrase: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_MANUAL_HOTSPOT_PASSPHRASE, passphrase)
-            .apply()
+        val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        putSecretString(editor, KEY_MANUAL_HOTSPOT_PASSPHRASE, passphrase)
+        editor.apply()
     }
 
     fun loadManualHotspotBand(context: Context): ManualHotspotBand {
@@ -1660,18 +1663,20 @@ object AirPlayPersistence {
 
     fun loadIdentity(context: Context): AirPlayIdentity {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val privateKey = prefs.getString(KEY_IDENT_PRIVATE, null)
+        val privateKey = loadSecretString(prefs, KEY_IDENT_PRIVATE)
         val publicKey = prefs.getString(KEY_IDENT_PUBLIC, null)
         val pairingId = prefs.getString(KEY_PAIRING_ID, null)
-        if (privateKey != null && publicKey != null && pairingId != null) {
-            return AirPlayIdentity(privateKey.decodeHex(), publicKey.decodeHex(), pairingId)
+        if (!privateKey.isNullOrEmpty() && !publicKey.isNullOrEmpty() && !pairingId.isNullOrEmpty()) {
+            runCatching {
+                return AirPlayIdentity(privateKey.decodeHex(), publicKey.decodeHex(), pairingId)
+            }
         }
         return AirPlayIdentity.generate().also { identity ->
-            prefs.edit()
-                .putString(KEY_IDENT_PRIVATE, identity.privateKey.toHex())
+            val editor = prefs.edit()
                 .putString(KEY_IDENT_PUBLIC, identity.publicKey.toHex())
                 .putString(KEY_PAIRING_ID, identity.pairingId)
-                .apply()
+            putSecretString(editor, KEY_IDENT_PRIVATE, identity.privateKey.toHex())
+            editor.apply()
         }
     }
 
@@ -1701,9 +1706,9 @@ object AirPlayPersistence {
         val wifiMac = prefs.getString(KEY_LOCKDOWN_WIFI_MAC, null) ?: return null
         val devicePublic = prefs.getString(KEY_LOCKDOWN_DEVICE_PUBLIC, null) ?: return null
         val deviceCert = prefs.getString(KEY_LOCKDOWN_DEVICE_CERT, null) ?: return null
-        val hostPrivate = prefs.getString(KEY_LOCKDOWN_HOST_PRIVATE, null) ?: return null
+        val hostPrivate = loadSecretString(prefs, KEY_LOCKDOWN_HOST_PRIVATE)?.takeIf { it.isNotEmpty() } ?: return null
         val hostCert = prefs.getString(KEY_LOCKDOWN_HOST_CERT, null) ?: return null
-        val rootPrivate = prefs.getString(KEY_LOCKDOWN_ROOT_PRIVATE, null) ?: return null
+        val rootPrivate = loadSecretString(prefs, KEY_LOCKDOWN_ROOT_PRIVATE)?.takeIf { it.isNotEmpty() } ?: return null
         val rootCert = prefs.getString(KEY_LOCKDOWN_ROOT_CERT, null) ?: return null
         return try {
             LockdownPairRecord.restore(
@@ -1723,17 +1728,17 @@ object AirPlayPersistence {
     }
 
     fun saveLockdownRecord(context: Context, record: LockdownPairRecord) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_LOCKDOWN_HOST_ID, record.hostId)
             .putString(KEY_LOCKDOWN_SYSTEM_BUID, record.systemBuid)
             .putString(KEY_LOCKDOWN_WIFI_MAC, record.wifiMacAddress)
             .putString(KEY_LOCKDOWN_DEVICE_PUBLIC, record.devicePublicKeyPem.toHex())
             .putString(KEY_LOCKDOWN_DEVICE_CERT, record.deviceCertificatePem.toHex())
-            .putString(KEY_LOCKDOWN_HOST_PRIVATE, record.hostPrivateKeyPem.toHex())
             .putString(KEY_LOCKDOWN_HOST_CERT, record.hostCertificatePem.toHex())
-            .putString(KEY_LOCKDOWN_ROOT_PRIVATE, record.rootPrivateKeyPem.toHex())
             .putString(KEY_LOCKDOWN_ROOT_CERT, record.rootCertificatePem.toHex())
-            .apply()
+        putSecretString(editor, KEY_LOCKDOWN_HOST_PRIVATE, record.hostPrivateKeyPem.toHex())
+        putSecretString(editor, KEY_LOCKDOWN_ROOT_PRIVATE, record.rootPrivateKeyPem.toHex())
+        editor.apply()
     }
 
     fun clearLockdownRecord(context: Context) {
@@ -1757,6 +1762,20 @@ object AirPlayPersistence {
         return ByteArray(length / 2) { index ->
             substring(index * 2, index * 2 + 2).toInt(16).toByte()
         }
+    }
+
+    private fun loadSecretString(prefs: SharedPreferences, key: String): String? =
+        com.shilapi.xcertplay.security.KeystoreSecretBox.default.readOrMigrateString(
+            prefs.getString(key, null),
+        ) { migrated ->
+            prefs.edit().putString(key, migrated).apply()
+        }
+
+    private fun putSecretString(editor: SharedPreferences.Editor, key: String, plaintext: String) {
+        editor.putString(
+            key,
+            com.shilapi.xcertplay.security.KeystoreSecretBox.default.writeStringOrPlain(plaintext),
+        )
     }
 
     private fun safeAreaKey(widthPixels: Int, heightPixels: Int): String =

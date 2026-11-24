@@ -191,3 +191,78 @@
 
 ## 6. 回滚策略
 每个 Phase 均对应独立 Git Commit（Phase 0 ~ Phase 4 共 5 个提交）。如实车验证发现某一阶段引发兼容问题，可直接 `git revert <commit>` 精确回退该阶段，不影响其余阶段优化。
+
+
+---
+
+## Phase 5：专项安全审计风险应对与纵深加固计划（2026-11-23 追加）
+
+### 背景与目标
+针对车机实际威胁模型（同车机第三方/破解 App、车机热点与同局域网设备、安装包逆向提取、行驶中前台干扰），对安全审计识别出的 **9 个风险点（3 高 / 4 中 / 2 低）** 制定可落地的工程化应对方案。  
+**实施原则**：所有安全加固必须 **100% 向后兼容已有用户数据（支持旧明文配置平滑迁移）**，且绝不破坏 22 款长安 UNI-V（Android 9 / MTK）的仪表投屏、主题渲染、蓝牙联动与连接速度。
+
+---
+
+### 7.1 风险点与应对方案矩阵
+
+#### 🔴 高风险项（优先实施：Phase 5A）
+
+| 风险编号 | 风险描述与 CWE | 涉及模块 / 文件 | 工程化应对方案 | UNI-V 兼容与回退保障 |
+| :--- | :--- | :--- | :--- | :--- |
+| **SEC-01** | **Release 包默认复用公开 Debug 签名**<br>（CWE-295：同包名恶意 APK 静默覆盖劫持、继承 USB/无障碍/ADB 权限） | `mobile/build.gradle.kts`<br>`.gitignore`<br>仓库外密钥目录 | 1. 在仓库外安全目录（如 `D:\Download\diplay-auth-assets\keystore\`）生成车主专属私有 `4096-bit RSA` 签名密钥（开启 v1 + v2 签名兼容 Android 9）；<br>2. 在 `mobile/build.gradle.kts` 增加 `-PrequirePrivateSigning=true` 构建守卫与未配置 `ANDROID_KEYSTORE_PATH` 时的醒目编译告警，防止正式装车包误用 `debug` 签名；<br>3. 确认 `.gitignore` 严格忽略 `*.jks`、`*.keystore`、`keystore.properties`。 | 首次切换私有签名时：先用 Phase 2「手机扫码备份」导出五卡坐标与主题配置 → 卸载车机旧包 → 安装私有签名包 → 扫码一键恢复，配置零丢失。 |
+| **SEC-02** | **本地高权限私钥与敏感凭据明文存储**<br>（CWE-312：`adbkey.private` 持 `shell` 权限，AirPlay/Lockdown 私钥与热点密码明文落盘） | 新增 `shared/.../security/KeystoreSecretBox.kt`<br>`shared/.../adb/AdbKeys.kt`<br>`common/.../AirPlayPersistence.kt` | 1. 基于 Android Keystore（`AES/GCM/NoPadding` 256-bit 硬件/TEE 主密钥，不设锁屏解锁约束以适配无锁屏车机）实现 `KeystoreSecretBox`，密文带 `enc:v1:` / `DPK1` 版本头；<br>2. 改造 `AdbKeys.kt`：加密存储 `adbkey.private`，首次读取旧版明文 PKCS#8 时自动原地迁移为密文；<br>3. 改造 `AirPlayPersistence.kt`：对 `identity_private`、`lockdown_host_private`、`lockdown_root_private`、`manual_hotspot_passphrase`、`remote_mfi_token` 实施透明加解密与平滑迁移。 | 若个别魔改 Android 9 车机 Keystore HAL 异常，捕获异常记录诊断标记并降级可用，严禁引发启动崩溃或丢失已有 iPhone 配对。 |
+| **SEC-03** | **车机网络 ADB（`0.0.0.0:5555`）局域网暴露面**<br>（开启系统网络 ADB 时同网段可连接干扰或攻击 `adbd`） | `shared/.../adb/LocalAdb.kt`<br>`common/.../DiPlayActivity.kt`<br>`values*/strings.xml` | 1. 在 `LocalAdb.kt` 中强制校验目标地址 `InetAddress.isLoopbackAddress`，从代码层锁死仅允许连接回环地址（`127.0.0.1` / `::1`）；<br>2. 在设置页「连接期间暂停 Wi-Fi 扫描」说明中明确标注 UNI-V 原生仪表无需网络 ADB；<br>3. 当检测到 `127.0.0.1:5555` 处于开放状态但当前未启用任何需 ADB 的功能时，在设置/诊断报告给出关闭车机 5555 端口的安全提示。 | 不影响确实需要 `WifiScanPause` 用户的本地回环调用，同时引导 UNI-V 车主日常关闭 5555 暴露端口。 |
+
+---
+
+#### 🟡 中风险项（组件边界与局域网加固：Phase 5B）
+
+| 风险编号 | 风险描述与 CWE | 涉及模块 / 文件 | 工程化应对方案 | UNI-V 兼容与回退保障 |
+| :--- | :--- | :--- | :--- | :--- |
+| **SEC-04** | **导出广播接收器监听非受保护自定义 Action**<br>（CWE-926：第三方 App 可伪造 `ACTION_BOOT_HU` / `ACTION_SHUTDOWN_HU` 在行驶中强拉前台或切蓝牙） | `common/src/main/AndroidManifest.xml`<br>`common/.../BootReceiver.kt`<br>`common/.../bluetooth/BluetoothRestoreReceiver.kt`<br>`mobile/src/debug/AndroidManifest.xml` | 1. `BootReceiver.kt`：对非系统保护的 `ACTION_BOOT_HU` 增加开机时间窗口限制（仅在 `SystemClock.elapsedRealtime() <= 180_000L` 即开机 3 分钟内生效）与单进程幂等防重，保留系统受保护 `ACTION_BOOT_COMPLETED` 原逻辑；<br>2. `BluetoothRestoreReceiver.kt`：对 `ACTION_BOOT_HU` / `QUICKBOOT_POWERON` 同样施加开机窗口限制；对 `ACTION_SHUTDOWN_HU` 增加无活跃投屏会话或关机状态校验；<br>3. 为 Debug 包的 `BenchClusterReceiver` 增加 `android:permission="android.permission.DUMP"`，阻止普通第三方 App 发送模拟数据。 | 车机真实冷启动/STR 快启均在开机窗口内触发，不影响开机自启与自动还原蓝牙，同时彻底封堵行驶中被恶意 App 伪造广播劫持。 |
+| **SEC-05** | **`MapEmbedService` 导出无权限与解码实例耗尽风险**<br>（CWE-284：开启共享后任意 App 可窃取实时导航画面或耗尽 MTK 硬解实例） | `common/src/main/AndroidManifest.xml`<br>`common/src/main/res/values*/bools.xml`<br>`common/.../MapEmbedService.kt` | 1. **按系统版本裁剪暴露面**：利用 `values/bools.xml`（`false`）与 `values-v30/bools.xml`（`true`）控制 `android:enabled="@bool/enable_map_embed_service"`，在 **Android 9（22 款 UNI-V）上直接从包管理层禁用该导出服务**；<br>2. 在 `MapEmbedService.kt`（Android 11+）中校验绑定方宽高边界（`1..4096`）、限制最大并发嵌入实例数 `MAX_EMBEDS = 1`，并增加调用包名白名单/首次授权确认机制。 | 22 款 UNI-V（Android 9）本身不支持 API 30 `SurfaceControlViewHost`，默认禁用后导出攻击面直接归零，不影响长安 `InCallClusterBridge` 仪表投屏。 |
+| **SEC-06** | **扫码备份/日志 HTTP 服务局域网暴力锁定与 CSRF**<br>（CWE-319 / CWE-307 / CWE-352：64-bit Token 偏短、5 次错输全局锁死、导入接口缺 CSRF 校验） | `common/.../backup/SettingsBackupServer.kt` | 1. 将随机路径 Token 从 `ByteArray(8)`（64-bit）升级为 `ByteArray(16)`（128-bit，32 位 hex）；<br>2. 将 6 位数字验证码错误计数改为**按客户端源 IP 独立限流**（单 IP 5 次锁定，全局总上限 20 次），防止局域网其他设备恶作剧锁死车主输入；<br>3. 仅放行 RFC1918 私网 / 链路本地源 IP 连接，对设置导入 `POST` 请求强校验有效路径 Token 与同源 `Origin`，并补充 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`。 | 手机扫码操作流程完全不变，抗局域网干扰与防跨站误导入能力显著增强。 |
+| **SEC-07** | **外部自定义主题目录篡改与超大资源 DoS**<br>（CWE-732 / CWE-400：`/data/local/tmp/themes` 全局 `shell` 可写，超大 JSON/图片可致 OOM） | `common/.../CustomThemeSpec.kt`<br>`common/.../CustomThemeLayerView.kt`<br>`common/.../DiPlayActivity.kt` | 1. 在 `CustomThemeSpec.kt` 增加严格解析配额：`theme.json <= 512 KiB`、图层数 `<= 128`、动画数 `<= 64`、状态与规则数上限，并在解码前限制单张图片文件体积 `<= 16 MiB`；<br>2. 在主题设置中增加「导入到应用安全目录」动作：支持将外部 `/data/local/tmp/themes` 或自定义目录的主题一键复制进私有沙盒 `filesDir/themes/` 运行，脱离公共可写目录。 | 完全兼容现有全部自定义主题 `theme.json` 语法与二指滑动切主题，杜绝畸形主题文件拖垮主进程。 |
+
+---
+
+#### 🟢 低风险与合规控制项（连接锁定与产物管理：Phase 5C）
+
+| 风险编号 | 风险描述与场景 | 涉及模块 / 文件 | 工程化应对方案 | UNI-V 兼容与回退保障 |
+| :--- | :--- | :--- | :--- | :--- |
+| **SEC-08** | **APK 内置离线 MFi 实验证书逆向提取风险**<br>（安装包内 `assets/offline-mfi/` 可被解压提取） | `mobile/build.gradle.kts`<br>`SECURITY.md` | 1. 保持证书严格存放在仓库外 `D:\Download\diplay-auth-assets\offline-mfi\`，由 `rejectBundledCredentials` 任务持续守护源码树零凭据；<br>2. 构建产物分级管理：未注入环境变量时构建纯净分享包；注入证书构建出的装车包归档标记为自用（不上传公开仓库/网盘）。 | 维持零硬件改机上车即用能力，同时确保 Git 仓库可安全开源/备份。 |
+| **SEC-09** | **「现有 Wi-Fi」公共局域网模式下未认证配对抢连**<br>（公共路由器同网段设备可主动向 `:7000` 发起 `pair-setup`） | `shared/.../airplay/AirPlaySession.kt`<br>`common/.../AirPlayPersistence.kt`<br>`common/.../DiPlayActivity.kt` | 1. 新增可选开关 **「锁定已配对 iPhone（拒绝新设备配对）」**（默认关闭）：车主完成首次配对开启该开关后，`AirPlaySession` 直接拒绝未知设备的 `pair-setup` 请求，仅允许已在 `PairingStore` 中的公钥通过 `pair-verify` 建连；<br>2. 选择「现有 Wi-Fi」模式时在 UI 显示局域网安全提示，推荐日常优先使用 **Wi-Fi Direct** 或 **车机热点**。 | 默认关闭不影响首次配对体验；开启后即使误连公共 Wi-Fi 也不会被他人设备抢占投屏。 |
+
+---
+
+### 7.2 分批实施节奏与提交规划
+
+为保持与前序阶段一致的“小步快跑、独立可回滚”原则，Phase 5 拆分为 **3 个独立 Git Commit** 执行：
+
+1. **Phase 5A（签名防劫持与凭据硬件加密）**
+   - 覆盖：`SEC-01`、`SEC-02`、`SEC-08`
+   - 新增单测：`KeystoreSecretBoxTest`（加解密往返、篡改密文鉴权失败、旧明文配置自动迁移）、`AdbKeysMigrationTest`。
+   - 计划 Commit：`sec(storage-signing): encrypt local private keys/passphrases with Android Keystore and add private release signing guard`
+
+2. **Phase 5B（Android 组件导出面与本地服务加固）**
+   - 覆盖：`SEC-03`、`SEC-04`、`SEC-05`、`SEC-06`、`SEC-07`
+   - 新增/更新单测：`BootReceiverSecurityTest`（开机窗口拦截测试）、`SettingsBackupServerTest`（128-bit Token、按 IP 限流防全局锁死、POST Origin/CSRF 校验）、`CustomThemeBoundsTest`（超大 JSON/图层配额拦截）、`LocalAdbLoopbackTest`。
+   - 计划 Commit：`sec(ipc-lan): harden boot/bt receivers, gate MapEmbedService to API 30+, upgrade backup server rate-limit/token and bound custom themes`
+
+3. **Phase 5C（AirPlay 配对锁定开关与安全提示闭环）**
+   - 覆盖：`SEC-09`（及 `SEC-03` 设置页提示文案）
+   - 新增单测：`AirPlayPairLockTest`（开启配对锁定后拒绝 `pair-setup`、放行已配对设备 `pair-verify`）。
+   - 计划 Commit：`sec(airplay): add optional paired-device lock mode and wireless security guidance`
+
+---
+
+### 7.3 Phase 5 验收标准清单
+
+- [ ] **自动化测试全绿**：新增安全单测与既有长安/音频/视频回归测试全部通过（`:shared:testDebugUnitTest`、`:common:testDebugUnitTest`）。
+- [ ] **Manifest 暴露面核验**：检查 `:mobile:assembleRelease` 合并后的 `AndroidManifest.xml`：
+  - `BenchClusterReceiver`、`MyCarAppService` 已彻底移除；
+  - `MapEmbedService` 在 API < 30（Android 9 车机）下处于 `enabled=false`；
+  - `BootReceiver` 与 `BluetoothRestoreReceiver` 具备运行时开机窗口保护。
+- [ ] **平滑迁移与实车无感验证**：
+  - 模拟旧版明文 `xcertplay_airplay.xml` 与 `adbkey.private` 升级后，已配对的 iPhone 无需重新配对即可直接无线自动重连，落盘文件不再包含明文私钥与热点密码；
+  - 使用私有 `.jks` 签名产出最终装车 Release APK，通过 `apksigner verify --print-certs` 校验为自有证书（非 Android Debug 证书）。

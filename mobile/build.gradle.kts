@@ -54,6 +54,13 @@ val generateBuildStamp by tasks.registering {
     }
 }
 
+val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH")
+    .orNull?.trim()?.takeIf { it.isNotEmpty() }
+val hasPrivateReleaseKeystore = releaseKeystorePath != null && file(releaseKeystorePath).isFile
+val requirePrivateSigning = providers.gradleProperty("requirePrivateSigning")
+    .map { it.equals("true", ignoreCase = true) }
+    .getOrElse(false)
+
 android {
     namespace = "com.shilapi.xcertplay"
     compileSdk {
@@ -78,13 +85,12 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file(
-                providers.environmentVariable("ANDROID_KEYSTORE_PATH")
-                    .getOrElse("missing-release-keystore.jks"),
-            )
+            storeFile = file(releaseKeystorePath ?: "missing-release-keystore.jks")
             storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").getOrElse("")
             keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").getOrElse("")
             keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").getOrElse("")
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
 
@@ -99,10 +105,14 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             versionNameSuffix = "-hud-release"
-            // Same application id AND same signature as debug: an installed debug
-            // build upgrades straight to release. The published release key stays
-            // declared above for a future non-hudtest channel.
-            signingConfig = signingConfigs.getByName("debug")
+            // Prefer an explicitly configured private keystore (SEC-01) so third-party debug-signed
+            // APKs cannot overwrite the car install; fall back to debug signing only for local
+            // source/CI builds when requirePrivateSigning is not enforced.
+            signingConfig = if (hasPrivateReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
     compileOptions {
@@ -175,9 +185,44 @@ val verifyStandaloneAuthentication by tasks.registering {
         }) { "Standalone CarPlay authentication files are missing or empty" }
     }
 }
-tasks.named("preBuild") { mustRunAfter(verifyStandaloneAuthentication) }
+val verifyPrivateReleaseSigning by tasks.registering {
+    group = "verification"
+    description = "Require a private release keystore (ANDROID_KEYSTORE_PATH) instead of the public debug key."
+    val configured = hasPrivateReleaseKeystore
+    val keystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull.orEmpty()
+    val alias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull.orEmpty()
+    val keyPwd = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull.orEmpty()
+    doLast {
+        check(configured) {
+            "Private release signing requires ANDROID_KEYSTORE_PATH pointing to an existing .jks/.keystore file."
+        }
+        check(keystorePassword.isNotBlank() && alias.isNotBlank() && keyPwd.isNotBlank()) {
+            "Private release signing requires ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD."
+        }
+    }
+}
+if (requirePrivateSigning) {
+    tasks.matching { it.name.contains("Release") }.configureEach {
+        dependsOn(verifyPrivateReleaseSigning)
+    }
+} else if (!hasPrivateReleaseKeystore) {
+    tasks.matching { it.name == "packageRelease" }.configureEach {
+        doFirst {
+            logger.warn(
+                "SECURITY WARNING (SEC-01): ANDROID_KEYSTORE_PATH is not set; packaging release APK " +
+                    "with the public debug signingConfig. Pass ANDROID_KEYSTORE_* or use assemblePrivateRelease for car installs.",
+            )
+        }
+    }
+}
+tasks.named("preBuild") { mustRunAfter(verifyStandaloneAuthentication, verifyPrivateReleaseSigning) }
 tasks.register("assembleStandaloneDebug") {
     group = "build"
     description = "Build a standalone car-test APK with explicitly provisioned authentication."
     dependsOn(verifyStandaloneAuthentication, "assembleDebug")
+}
+tasks.register("assemblePrivateRelease") {
+    group = "build"
+    description = "Build a car-ready release APK with standalone MFi assets and private release signing."
+    dependsOn(verifyStandaloneAuthentication, verifyPrivateReleaseSigning, "assembleRelease")
 }

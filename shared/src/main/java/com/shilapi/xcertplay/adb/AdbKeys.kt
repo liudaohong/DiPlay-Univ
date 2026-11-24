@@ -2,6 +2,8 @@ package com.shilapi.xcertplay.adb
 
 import android.content.Context
 import com.shilapi.xcertplay.compat.Base64Compat
+import com.shilapi.xcertplay.security.KeystoreSecretBox
+import com.shilapi.xcertplay.security.SecretBox
 import java.io.File
 import java.math.BigInteger
 import java.nio.ByteBuffer
@@ -31,22 +33,46 @@ object AdbKeys {
 
     /** Loads the key from app-private storage, or makes one on first use. */
     @Synchronized
-    fun load(context: Context): KeyPair {
-        val dir = File(context.noBackupFilesDir, DIR)
+    fun load(context: Context): KeyPair =
+        loadFromDir(File(context.noBackupFilesDir, DIR), KeystoreSecretBox.default)
+
+    @Synchronized
+    internal fun loadFromDir(dir: File, secretBox: SecretBox = KeystoreSecretBox.default): KeyPair {
         val privateFile = File(dir, PRIVATE)
         val publicFile = File(dir, PUBLIC)
         runCatching {
+            val storedPrivate = privateFile.readBytes()
+            val pkcs8Bytes = if (secretBox.isEncryptedBytes(storedPrivate)) {
+                secretBox.decryptBytes(storedPrivate)
+            } else {
+                storedPrivate.also { plain ->
+                    // Legacy plaintext PKCS#8 on disk: migrate in-place to encrypted envelope.
+                    runCatching { writeAtomically(privateFile, secretBox.encryptBytes(plain)) }
+                }
+            }
             val factory = KeyFactory.getInstance("RSA")
             return KeyPair(
                 factory.generatePublic(X509EncodedKeySpec(publicFile.readBytes())),
-                factory.generatePrivate(PKCS8EncodedKeySpec(privateFile.readBytes())),
+                factory.generatePrivate(PKCS8EncodedKeySpec(pkcs8Bytes)),
             )
         }
         val pair = KeyPairGenerator.getInstance("RSA").apply { initialize(KEY_BITS) }.generateKeyPair()
         dir.mkdirs()
-        privateFile.writeBytes(pair.private.encoded)
-        publicFile.writeBytes(pair.public.encoded)
+        val encodedPrivate = runCatching { secretBox.encryptBytes(pair.private.encoded) }
+            .getOrDefault(pair.private.encoded)
+        writeAtomically(privateFile, encodedPrivate)
+        writeAtomically(publicFile, pair.public.encoded)
         return pair
+    }
+
+    private fun writeAtomically(target: File, bytes: ByteArray) {
+        target.parentFile?.mkdirs()
+        val tmp = File(target.parentFile, "${target.name}.tmp")
+        tmp.writeBytes(bytes)
+        if (!tmp.renameTo(target)) {
+            target.writeBytes(bytes)
+            tmp.delete()
+        }
     }
 
     fun sign(token: ByteArray, key: PrivateKey): ByteArray =
