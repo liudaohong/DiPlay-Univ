@@ -82,4 +82,6 @@ data class AirPlayConfig(
     val icons: List<AirPlayIcon> = emptyList(),
     /** iOS 27 video in car (see [VideoInCar]); video plays only while [VideoInCar.allowed]. */
     val videoInCar: Boolean = false,
+    /** When true and at least one iPhone is already paired, reject new /pair-setup attempts (SEC-09). */
+    val lockPairedDevices: Boolean = false,
 )

@@ -175,10 +175,10 @@
 ## 5. 最终整体验收与上车验证清单
 
 ### 5.1 本机自动验证（全部由 Gradle 完成）
-- [ ] `:shared:testDebugUnitTest` 全部通过（含原有 + 新移植单测）
-- [ ] `:common:testDebugUnitTest` 全部通过（含长安自定义主题、卡片、默认值迁移 + 新移植单测）
-- [ ] `:mobile:assembleDebug` & `:mobile:assembleRelease` 成功构建，APK 中正确包含 `libspeex_echo.so`
-- [ ] 如已提供 `DIPLAY_AUTH_ASSETS_DIR`：`:mobile:assembleStandaloneDebug` 通过认证资产校验并生成可直接上车的安装包
+- [x] `:shared:testDebugUnitTest` 全部通过（含原有 + 新移植单测）
+- [x] `:common:testDebugUnitTest` 全部通过（含长安自定义主题、卡片、默认值迁移 + 新移植单测）
+- [x] `:mobile:assembleDebug` & `:mobile:assembleRelease` 成功构建，APK 中正确包含 `libspeex_echo.so`
+- [x] 如已提供 `DIPLAY_AUTH_ASSETS_DIR`：`:mobile:assembleStandaloneDebug` / `:mobile:assemblePrivateRelease` 通过认证资产校验并生成可直接上车的安装包
 
 ### 5.2 22 款 UNI-V 领速版实车核验项（上车测试）
 - [ ] **长安核心回归**：无线 2.4GHz 热点正常建连、三指飞屏切换（原车/整机镜像/仅导航/取景窗）、自定义仪表主题车速/转速/频谱正常、大灯联动日夜模式正常、氛围灯律动正常、自动开关蓝牙正常。
@@ -258,11 +258,11 @@
 
 ### 7.3 Phase 5 验收标准清单
 
-- [ ] **自动化测试全绿**：新增安全单测与既有长安/音频/视频回归测试全部通过（`:shared:testDebugUnitTest`、`:common:testDebugUnitTest`）。
-- [ ] **Manifest 暴露面核验**：检查 `:mobile:assembleRelease` 合并后的 `AndroidManifest.xml`：
+- [x] **自动化测试全绿**：新增安全单测与既有长安/音频/视频回归测试全部通过（`:shared:testDebugUnitTest`、`:common:testDebugUnitTest`）。
+- [x] **Manifest 暴露面核验**：检查 `:mobile:assembleRelease` 合并后的 `AndroidManifest.xml`：
   - `BenchClusterReceiver`、`MyCarAppService` 已彻底移除；
   - `MapEmbedService` 在 API < 30（Android 9 车机）下处于 `enabled=false`；
   - `BootReceiver` 与 `BluetoothRestoreReceiver` 具备运行时开机窗口保护。
-- [ ] **平滑迁移与实车无感验证**：
+- [x] **平滑迁移与实车无感验证**：
   - 模拟旧版明文 `xcertplay_airplay.xml` 与 `adbkey.private` 升级后，已配对的 iPhone 无需重新配对即可直接无线自动重连，落盘文件不再包含明文私钥与热点密码；
   - 使用私有 `.jks` 签名产出最终装车 Release APK，通过 `apksigner verify --print-certs` 校验为自有证书（非 Android Debug 证书）。

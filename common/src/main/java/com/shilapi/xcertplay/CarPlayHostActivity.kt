@@ -5330,6 +5330,7 @@ class CarPlayHostActivity : ComponentActivity() {
             oemLabel = oemLabel,
             icons = listOf(loadAirPlayIcon()),
             videoInCar = com.shilapi.xcertplay.hud.BydOutputSettings.videoWhileParkedActive(this),
+            lockPairedDevices = AirPlayPersistence.loadLockPairedDevices(this),
             // Audio always stays on CarPlay. Advertising no audio at all was built twice and
             // removed twice: the phone then keeps its sound on the car's Bluetooth, where the
             // head unit plays it on its media path, so the navigation channel the wheel keys

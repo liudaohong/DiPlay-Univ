@@ -794,6 +794,12 @@ class DiPlayActivity : ComponentActivity() {
                 getString(R.string.wifi_direct_scan_pause_description),
                 AirPlayPersistence.loadWifiDirectScanPause(this),
             ) { AirPlayPersistence.saveWifiDirectScanPause(this, it) }
+            toggle(
+                card,
+                getString(R.string.lock_paired_devices_title),
+                getString(R.string.lock_paired_devices_description),
+                AirPlayPersistence.loadLockPairedDevices(this),
+            ) { AirPlayPersistence.saveLockPairedDevices(this, it) }
             adbToggle(card, R.string.open_after_the_car_starts,
                 R.string.availability_depends_on_your_head_unit_s_startup_settings,
                 read = { AirPlayPersistence.loadAutoStartOnBoot(this) },
@@ -1980,6 +1986,7 @@ class DiPlayActivity : ComponentActivity() {
             parent.addView(label(if (pendingCarHotspotSetup) getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) else if (carHotspotOff()) getString(R.string.hotspot_details_off) else getString(R.string.hotspot_details_saved), 15, if (carHotspotOff()) WARNING else MUTED).apply { setPadding(0, dp(12), 0, 0) })
         } else if (mode == WirelessHotspotMode.EXISTING_WIFI) {
             parent.addView(label(getString(R.string.existing_wifi_instructions), 16, MUTED))
+            parent.addView(label(getString(R.string.existing_wifi_security_hint), 14, WARNING).apply { setPadding(0, dp(6), 0, dp(6)) })
             parent.addView(button(getString(R.string.open_car_wi_fi_settings), false) { openCarClientWifiSettings() }, matchButton(12, 60))
             parent.addView(button(getString(R.string.existing_wifi_details), false) {
                 askHotspotCredentials(existingWifi = true) { ssid, password ->

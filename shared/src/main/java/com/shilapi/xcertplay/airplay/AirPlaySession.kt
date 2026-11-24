@@ -495,7 +495,7 @@ class AirPlaySession(
         }
     }
 
-    private fun handle(request: RtspMessage.Request): RtspMessage.Response {
+    internal fun handle(request: RtspMessage.Request): RtspMessage.Response {
         when (request.method) {
             "SETUP" -> return handleSetup(request)
             "RECORD" -> {
@@ -507,10 +507,18 @@ class AirPlaySession(
 
         val path = request.path.lowercase()
         return when {
-            path.endsWith("/pair-setup") -> RtspMessage.Response(
-                headers = mapOf("Content-Type" to PAIRING_CONTENT_TYPE),
-                body = pairSetup.handle(request.body),
-            )
+            path.endsWith("/pair-setup") -> {
+                val body = if (config.lockPairedDevices && pairings.hasPairings()) {
+                    runCatching { debugLog("airplay pair-setup rejected: paired-device lock is enabled") }
+                    pairSetup.rejectLocked(request.body)
+                } else {
+                    pairSetup.handle(request.body)
+                }
+                RtspMessage.Response(
+                    headers = mapOf("Content-Type" to PAIRING_CONTENT_TYPE),
+                    body = body,
+                )
+            }
             path.endsWith("/pair-verify") -> RtspMessage.Response(
                 headers = mapOf("Content-Type" to PAIRING_CONTENT_TYPE),
                 body = pairVerify.handle(request.body),

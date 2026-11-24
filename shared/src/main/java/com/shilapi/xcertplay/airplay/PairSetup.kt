@@ -31,6 +31,20 @@ class PairSetup(
         }
     }
 
+    /** Rejects unsolicited pair-setup requests when paired-device lock mode is active (SEC-09). */
+    fun rejectLocked(body: ByteArray): ByteArray {
+        val reqState = runCatching {
+            Tlv8Codec.decode(body)[TYPE_STATE]?.firstOrNull()?.toInt()?.and(0xff)
+        }.getOrNull() ?: 1
+        val nextState = when (reqState) {
+            1 -> 2
+            3 -> 4
+            5 -> 6
+            else -> reqState
+        }
+        return err(nextState)
+    }
+
     private fun m2(): ByteArray {
         val session = Srp6a.start(SETUP_USERNAME, SETUP_CODE)
         srp = session

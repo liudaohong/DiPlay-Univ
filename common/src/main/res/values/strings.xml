@@ -790,4 +790,7 @@ CarPlay, right here on your car display.</string>
     <string name="porthole_theme_import_sandbox">Import themes into private app sandbox</string>
     <string name="porthole_theme_imported_sandbox">Imported %1$d themes into the private app folder and switched to it.</string>
     <string name="porthole_theme_import_empty">No valid themes found to import from the external folder.</string>
+    <string name="lock_paired_devices_title">Lock paired iPhones (reject new pairings)</string>
+    <string name="lock_paired_devices_description">Once at least one iPhone is paired, refuse new AirPlay pair-setup requests from unknown devices on shared Wi-Fi networks.</string>
+    <string name="existing_wifi_security_hint">Security note: On shared or public Wi-Fi routers, other devices on the same LAN can reach the CarPlay port. Prefer Wi-Fi Direct or Car Hotspot for daily driving, or enable “Lock paired iPhones” in Settings.</string>
 </resources>

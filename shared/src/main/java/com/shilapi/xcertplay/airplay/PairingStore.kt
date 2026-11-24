@@ -12,5 +12,7 @@ class PairingStore(private val onSave: ((String, ByteArray) -> Unit)? = null) {
 
     fun get(identifier: String): ByteArray? = entries[identifier]?.copyOf()
 
+    fun hasPairings(): Boolean = entries.isNotEmpty()
+
     fun clear() = entries.clear()
 }
