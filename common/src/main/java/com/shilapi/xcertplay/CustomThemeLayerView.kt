@@ -40,9 +40,7 @@ internal class CustomThemeLayerView(
         typeface = Typeface.create("sans-serif", Typeface.NORMAL)
     }
     private val bitmap: Bitmap? by lazy {
-        layer.src?.let { file ->
-            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-        }
+        layer.src?.let { file -> decodeBoundedBitmap(file) }
     }
     /** Animated GIF source; movie is null for PNG/JPEG/BMP. */
     private val movie: Movie? by lazy {
@@ -52,10 +50,27 @@ internal class CustomThemeLayerView(
     }
     private val movieStartedAt = SystemClock.elapsedRealtime()
     private val swapBitmap: Bitmap? by lazy {
-        layer.swapSrc?.let { file ->
-            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+        layer.swapSrc?.let { file -> decodeBoundedBitmap(file) }
+    }
+    /** Brush spec is immutable for the layer's lifetime; cache its Shader to avoid per-frame GC. */
+    private val cachedBrushShader: Shader? by lazy {
+        val spec = layer.paint ?: return@lazy null
+        val colors = spec.colors.toIntArray()
+        when (spec.kind) {
+            "radial" -> RadialGradient(
+                spec.center[0], spec.center[1], spec.radius.coerceAtLeast(1f),
+                colors, evenPositions(colors.size), Shader.TileMode.CLAMP,
+            )
+            "sweep" -> SweepGradient(
+                spec.center[0], spec.center[1], colors, evenPositions(colors.size),
+            )
+            else -> LinearGradient(
+                spec.from[0], spec.from[1], spec.to[0], spec.to[1],
+                colors, evenPositions(colors.size), Shader.TileMode.CLAMP,
+            )
         }
     }
+    private val ruleImageCache = HashMap<String, Bitmap?>()
     private var clockMs = 0L
     /** Latest frame handed down by [CustomThemeHost]; the same instance every layer sees. */
     private var frame = ThemeData()
@@ -132,15 +147,34 @@ internal class CustomThemeLayerView(
     }
 
     /** Phase-4 setImage override; relative image name inside the theme directory. */
-    fun setRuleImage(src: String?) {        if (src == ruleImageSrc) return
+    fun setRuleImage(src: String?) {
+        if (src == ruleImageSrc) return
         ruleImageSrc = src
         ruleImage = if (src == null) {
             null
         } else {
-            val dir = layer.src?.parentFile ?: return
-            runCatching { BitmapFactory.decodeFile(java.io.File(dir, src).absolutePath) }.getOrNull()
+            ruleImageCache.getOrPut(src) {
+                val dir = layer.src?.parentFile ?: return@getOrPut null
+                decodeBoundedBitmap(java.io.File(dir, src))
+            }
         }
     }
+
+    private fun decodeBoundedBitmap(file: java.io.File): Bitmap? = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return@runCatching BitmapFactory.decodeFile(file.absolutePath)
+        }
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= MAX_BITMAP_WIDTH ||
+            bounds.outHeight / (sample * 2) >= MAX_BITMAP_HEIGHT
+        ) {
+            sample *= 2
+        }
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        BitmapFactory.decodeFile(file.absolutePath, opts)
+    }.getOrNull()
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -262,7 +296,6 @@ internal class CustomThemeLayerView(
         canvas.scale(target.width() / mw, target.height() / mh)
         movie.draw(canvas, 0f, 0f, paint)
         canvas.restoreToCount(save)
-        postInvalidateOnAnimation()
     }
 
     private fun drawSpectrum(canvas: Canvas, dst: RectF, alpha: Float) {
@@ -284,23 +317,10 @@ internal class CustomThemeLayerView(
     }
 
     private fun drawBrush(canvas: Canvas, dst: RectF, alpha: Float) {
-        val spec = layer.paint ?: return
-        val colors = spec.colors.toIntArray()
+        val shader = cachedBrushShader ?: return
         paint.style = Paint.Style.FILL
         paint.alpha = (alpha * 255f).toInt()
-        paint.shader = when (spec.kind) {
-            "radial" -> RadialGradient(
-                spec.center[0], spec.center[1], spec.radius.coerceAtLeast(1f),
-                colors, evenPositions(colors.size), Shader.TileMode.CLAMP,
-            )
-            "sweep" -> SweepGradient(
-                spec.center[0], spec.center[1], colors, evenPositions(colors.size),
-            )
-            else -> LinearGradient(
-                spec.from[0], spec.from[1], spec.to[0], spec.to[1],
-                colors, evenPositions(colors.size), Shader.TileMode.CLAMP,
-            )
-        }
+        paint.shader = shader
         canvas.drawRect(dst, paint)
         paint.shader = null
     }
@@ -644,5 +664,7 @@ internal class CustomThemeLayerView(
 
     companion object {
         private val DUMMY = Path()
+        private const val MAX_BITMAP_WIDTH = 1920
+        private const val MAX_BITMAP_HEIGHT = 720
     }
 }

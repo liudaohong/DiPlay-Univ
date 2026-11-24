@@ -24,7 +24,8 @@ class LampReaderService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val retry = object : Runnable {
         override fun run() {
-            if (!source.isConnected) source.connectAsync(this@LampReaderService)
+            if (source.isConnected) return
+            source.connectAsync(this@LampReaderService)
             handler.postDelayed(this, 1000L)
         }
     }
@@ -80,6 +81,7 @@ class LampReaderService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(retry)
+        source.disconnect()
         super.onDestroy()
     }
 

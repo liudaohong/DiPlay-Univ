@@ -45,7 +45,38 @@ public final class CarLampSource {
 
     private static final String TAG = "CarLampSource";
 
+    private static final class PropertyMethods {
+        final Object manager;
+        final Method getInt2;
+        final Method getInt1;
+        final Method getFloat2;
+        final Method getIntArray2;
+        final Method isAvail2;
+        final Method isAvail1;
+
+        PropertyMethods(Object manager) {
+            this.manager = manager;
+            Class<?> cls = manager.getClass();
+            this.getInt2 = findMethod(cls, "getIntProperty", int.class, int.class);
+            this.getInt1 = findMethod(cls, "getIntProperty", int.class);
+            this.getFloat2 = findMethod(cls, "getFloatProperty", int.class, int.class);
+            this.getIntArray2 = findMethod(cls, "getIntArrayProperty", int.class, int.class);
+            this.isAvail2 = findMethod(cls, "isPropertyAvailable", int.class, int.class);
+            this.isAvail1 = findMethod(cls, "isPropertyAvailable", int.class);
+        }
+
+        private static Method findMethod(Class<?> cls, String name, Class<?>... params) {
+            try {
+                return cls.getMethod(name, params);
+            } catch (Throwable ignore) {
+                return null;
+            }
+        }
+    }
+
+    private volatile Object carInstance;
     private volatile Object propMgr;
+    private volatile PropertyMethods propMethods;
     private volatile boolean connecting;
     private volatile long lastConnectAt = 0L;
     private volatile int connectFailures = 0;
@@ -56,6 +87,20 @@ public final class CarLampSource {
     /** 是否已经连上车机属性服务。 */
     public boolean isConnected() {
         return propMgr != null;
+    }
+
+    /** 释放车机属性服务连接（在 Service 销毁时调用）。 */
+    public void disconnect() {
+        Object car = carInstance;
+        carInstance = null;
+        propMgr = null;
+        propMethods = null;
+        if (car != null) {
+            try {
+                car.getClass().getMethod("disconnect").invoke(car);
+            } catch (Throwable ignore) {
+            }
+        }
     }
 
     /** 最近一次读到的属性管理器类名，排查用。 */
@@ -140,6 +185,8 @@ public final class CarLampSource {
                     if (pm == null) {
                         throw new IllegalStateException("getCarManager 超时");
                     }
+                    carInstance = car;
+                    propMethods = new PropertyMethods(pm);
                     propMgr = pm;
                     connectFailures = 0;
                     lastError = "";
@@ -158,22 +205,24 @@ public final class CarLampSource {
 
     /** 读大灯：1=开，0=关，-1=读不到（未连接/不支持/异常）。 */
     public int readLamp() {
-        Object pm = propMgr;
+        PropertyMethods pm = propMethods;
         if (pm == null) {
             return -1;
         }
-        try {
-            Method m = pm.getClass().getMethod("getIntProperty", int.class, int.class);
-            return ((Integer) m.invoke(pm, PID_HEADLAMP, 0)).intValue();
-        } catch (Throwable t) {
-            lastError = rootMsg(t);
+        if (pm.getInt2 != null) {
+            try {
+                return ((Integer) pm.getInt2.invoke(pm.manager, PID_HEADLAMP, 0)).intValue();
+            } catch (Throwable t) {
+                lastError = rootMsg(t);
+            }
         }
         // Android 9 以后的新签名，兜底
-        try {
-            Method m = pm.getClass().getMethod("getIntProperty", int.class);
-            return ((Integer) m.invoke(pm, PID_HEADLAMP)).intValue();
-        } catch (Throwable t) {
-            lastError = lastError + " | " + rootMsg(t);
+        if (pm.getInt1 != null) {
+            try {
+                return ((Integer) pm.getInt1.invoke(pm.manager, PID_HEADLAMP)).intValue();
+            } catch (Throwable t) {
+                lastError = lastError + " | " + rootMsg(t);
+            }
         }
         return -1;
     }
@@ -274,12 +323,11 @@ public final class CarLampSource {
     }
 
     private int readIntProperty(int propId) {
-        Object pm = propMgr;
-        if (pm == null) return -1;
+        PropertyMethods pm = propMethods;
+        if (pm == null || pm.getInt2 == null) return -1;
         try {
             if (!isPropertyAvailable(pm, propId)) return -1;
-            Method m = pm.getClass().getMethod("getIntProperty", int.class, int.class);
-            Object v = m.invoke(pm, propId, 0);
+            Object v = pm.getInt2.invoke(pm.manager, propId, 0);
             return v instanceof Integer ? ((Integer) v).intValue() : -1;
         } catch (Throwable t) {
             lastError = rootMsg(t);
@@ -288,12 +336,11 @@ public final class CarLampSource {
     }
 
     private int readArrayValue(int propId, int index) {
-        Object pm = propMgr;
-        if (pm == null) return 0;
+        PropertyMethods pm = propMethods;
+        if (pm == null || pm.getIntArray2 == null) return 0;
         try {
             if (!isPropertyAvailable(pm, propId)) return 0;
-            Method m = pm.getClass().getMethod("getIntArrayProperty", int.class, int.class);
-            Object v = m.invoke(pm, propId, 0);
+            Object v = pm.getIntArray2.invoke(pm.manager, propId, 0);
             if (!(v instanceof int[])) return 0;
             int[] array = (int[]) v;
             return index >= 0 && index < array.length ? array[index] : 0;
@@ -309,12 +356,11 @@ public final class CarLampSource {
      * unregistered property returns a misleading 0.0.
      */
     private float readFloatProperty(int propId) {
-        Object pm = propMgr;
-        if (pm == null) return Float.NaN;
+        PropertyMethods pm = propMethods;
+        if (pm == null || pm.getFloat2 == null) return Float.NaN;
         try {
             if (!isPropertyAvailable(pm, propId)) return Float.NaN;
-            Method m = pm.getClass().getMethod("getFloatProperty", int.class, int.class);
-            Object v = m.invoke(pm, propId, 0);
+            Object v = pm.getFloat2.invoke(pm.manager, propId, 0);
             return v instanceof Float ? ((Float) v).floatValue() : Float.NaN;
         } catch (Throwable t) {
             lastError = rootMsg(t);
@@ -322,21 +368,25 @@ public final class CarLampSource {
         }
     }
 
-    private boolean isPropertyAvailable(Object pm, int propId) {
-        try {
-            Method m = pm.getClass().getMethod("isPropertyAvailable", int.class, int.class);
-            Object v = m.invoke(pm, propId, 0);
-            return v instanceof Boolean && ((Boolean) v).booleanValue();
-        } catch (Throwable t) {
-            // Older signatures or a manager without the method: let the float read decide.
+    private boolean isPropertyAvailable(PropertyMethods pm, int propId) {
+        if (pm.isAvail2 != null) {
             try {
-                Method m = pm.getClass().getMethod("isPropertyAvailable", int.class);
-                Object v = m.invoke(pm, propId);
+                Object v = pm.isAvail2.invoke(pm.manager, propId, 0);
+                return v instanceof Boolean && ((Boolean) v).booleanValue();
+            } catch (Throwable ignore) {
+                // Fall through to 1-arg signature.
+            }
+        }
+        if (pm.isAvail1 != null) {
+            try {
+                Object v = pm.isAvail1.invoke(pm.manager, propId);
                 return v instanceof Boolean && ((Boolean) v).booleanValue();
             } catch (Throwable ignore) {
                 return true;
             }
         }
+        // Older signatures or a manager without the method: let the property read decide.
+        return true;
     }
 
     // ---------------------------------------------------------------- 反射工具
