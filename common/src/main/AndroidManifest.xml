@@ -108,9 +108,11 @@
                 android:resource="@xml/navigation_widget_info" />
         </receiver>
 
-        <!-- The live dashboard map for launchers that embed it (docs/LAUNCHER_INTEGRATION.md). -->
+        <!-- The live dashboard map for launchers that embed it (docs/LAUNCHER_INTEGRATION.md).
+             Disabled below Android 11 (API 30) so Android 9 head units (UNI-V) do not expose it. -->
         <service
             android:name="com.shilapi.xcertplay.MapEmbedService"
+            android:enabled="@bool/config_enable_map_embed_service"
             android:exported="true"
             tools:ignore="ExportedService">
             <intent-filter>
@@ -130,7 +132,8 @@
 
         <receiver
             android:name="com.shilapi.xcertplay.BenchClusterReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="android.permission.DUMP">
             <intent-filter>
                 <action android:name="com.shilapi.xcertplay.BENCH_CLUSTER" />
                 <action android:name="com.shilapi.xcertplay.BENCH_SWIPE" />

@@ -364,7 +364,7 @@ object CustomThemeRepository {
                 }
             }
         }
-        if (!path.startsWith("/")) return null
+        if (!path.startsWith("/") && !File(path).isAbsolute) return null
         return File(path)
     }
 
@@ -401,7 +401,7 @@ object CustomThemeRepository {
     /** 校验并创建用户输入的主题目录；空路径表示恢复默认目录。 */
     fun validateThemesDir(context: Context, path: String): File? {
         val raw = path.trim()
-        if (raw.isNotEmpty() && !raw.startsWith("/")) return null
+        if (raw.isNotEmpty() && !raw.startsWith("/") && !File(raw).isAbsolute) return null
         val dir = resolveThemesDir(context, raw) ?: return null
         if (dir.exists() && !dir.isDirectory) return null
         if (!dir.exists() && !dir.mkdirs()) return null
@@ -418,6 +418,48 @@ object CustomThemeRepository {
      * external folder remains supported; it becomes the single configured root.
      */
     private fun themesDirs(context: Context): List<File> = listOf(themesDir(context))
+
+    /**
+     * Copies valid custom themes from the currently configured external folder (e.g. `/data/local/tmp/themes`)
+     * into the app-private sandbox (`filesDir/themes`) and switches the active folder setting back to
+     * the sandbox (SEC-07), removing runtime exposure to world/shell-writable directories.
+     */
+    fun importExternalThemesToSandbox(context: Context): Int {
+        val configured = AirPlayPersistence.loadClusterThemeDir(context).trim()
+        if (configured.isEmpty()) return 0
+        val sourceRoot = resolveThemesDir(context, configured)?.canonicalFile ?: return 0
+        val sandboxRoot = File(context.filesDir, "themes").canonicalFile.apply { mkdirs() }
+        if (sourceRoot == sandboxRoot || !sourceRoot.isDirectory) return 0
+        val children = sourceRoot.listFiles() ?: return 0
+        var imported = 0
+        for (child in children) {
+            if (!child.isDirectory) continue
+            val canonChild = runCatching { child.canonicalFile }.getOrNull() ?: continue
+            if (!canonChild.path.startsWith(sourceRoot.path + File.separator)) continue
+            val entry = readEntry(canonChild) ?: continue
+            // Ensure the theme spec parses cleanly within size/count bounds before importing.
+            runCatching { parse(entry) }.getOrNull() ?: continue
+            val safeFolderName = canonChild.name.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { continue }
+            val targetDir = File(sandboxRoot, safeFolderName)
+            val files = canonChild.listFiles() ?: continue
+            targetDir.mkdirs()
+            for (asset in files) {
+                if (!asset.isFile) continue
+                val canonAsset = runCatching { asset.canonicalFile }.getOrNull() ?: continue
+                if (!canonAsset.path.startsWith(canonChild.path + File.separator)) continue
+                val maxBytes = if (canonAsset.name == FILE) MAX_THEME_JSON_BYTES else MAX_ASSET_FILE_BYTES
+                if (canonAsset.length() > maxBytes) continue
+                canonAsset.inputStream().use { input ->
+                    File(targetDir, canonAsset.name).outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+            imported++
+        }
+        if (imported > 0) {
+            AirPlayPersistence.saveClusterThemeDir(context, "")
+        }
+        return imported
+    }
 
     /** Bench/test helper: copy the bundled sample theme into the log-adjacent theme folder. */
     fun seedSample(context: Context, assetDir: String = "test_theme", id: String = "test_theme"): Boolean {
@@ -506,8 +548,15 @@ object CustomThemeRepository {
      * not skip it and throws on the first character, which used to make a valid theme "not exist"
      * on the device (and shows up in tools/theme_audit.py as a parse failure).
      */
-    private fun readJsonText(file: File): String =
-        file.readText(Charsets.UTF_8).removePrefix("\uFEFF")
+    internal fun readJsonText(file: File): String {
+        val length = file.length()
+        check(length in 0L..MAX_THEME_JSON_BYTES) {
+            "theme.json exceeds size cap ($length > $MAX_THEME_JSON_BYTES bytes)"
+        }
+        return file.readText(Charsets.UTF_8).removePrefix("\uFEFF")
+    }
+
+    internal fun parseForTest(entry: CustomThemeEntry): CustomThemeSpec = parse(entry)
 
     private fun parse(entry: CustomThemeEntry): CustomThemeSpec {
         val json = JSONObject(readJsonText(File(entry.dir, FILE)))
@@ -517,7 +566,7 @@ object CustomThemeRepository {
         val animations = parseAnimations(json.optJSONArray("animations"))
         val layersJson = json.optJSONArray("layers") ?: JSONArray()
         val layers = ArrayList<CustomLayerSpec>()
-        for (i in 0 until layersJson.length()) {
+        for (i in 0 until minOf(layersJson.length(), MAX_LAYERS)) {
             val obj = layersJson.optJSONObject(i) ?: continue
             layers += parseLayer(entry.dir, obj, i)
         }
@@ -1053,11 +1102,11 @@ object CustomThemeRepository {
     private fun parseAnimations(arr: JSONArray?): List<CustomAnimationSpec> {
         if (arr == null) return emptyList()
         val out = ArrayList<CustomAnimationSpec>()
-        for (i in 0 until arr.length()) {
+        for (i in 0 until minOf(arr.length(), MAX_ANIMATIONS)) {
             val obj = arr.optJSONObject(i) ?: continue
             val keys = ArrayList<Pair<Float, Float>>()
             val kfs = obj.optJSONArray("keyframes")
-            if (kfs != null) for (k in 0 until kfs.length()) {
+            if (kfs != null) for (k in 0 until minOf(kfs.length(), MAX_KEYFRAMES)) {
                 val pair = kfs.optJSONArray(k) ?: continue
                 keys += pair.optDouble(0, 0.0).toFloat() to pair.optDouble(1, 0.0).toFloat()
             }
@@ -1073,12 +1122,25 @@ object CustomThemeRepository {
         return out
     }
 
+    internal const val MAX_THEME_JSON_BYTES = 512L * 1024L
+    internal const val MAX_ASSET_FILE_BYTES = 16L * 1024L * 1024L
+    internal const val MAX_LAYERS = 128
+    internal const val MAX_ANIMATIONS = 64
+    private const val MAX_KEYFRAMES = 128
+
     private fun safeAsset(dir: File, name: String): File? {
         if (name.contains("..") || name.startsWith("/") || name.startsWith("\\")) return null
         return try {
             val file = File(dir, name).canonicalFile
             val base = dir.canonicalFile
-            if (file.path.startsWith(base.path + File.separator) && file.isFile) file else null
+            if (file.path.startsWith(base.path + File.separator) &&
+                file.isFile &&
+                file.length() in 1L..MAX_ASSET_FILE_BYTES
+            ) {
+                file
+            } else {
+                null
+            }
         } catch (_: Throwable) {
             null
         }

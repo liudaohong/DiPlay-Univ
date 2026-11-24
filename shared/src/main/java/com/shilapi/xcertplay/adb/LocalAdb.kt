@@ -5,6 +5,7 @@ import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
@@ -25,6 +26,12 @@ class LocalAdb(
     private val host: String = "127.0.0.1",
     private val port: Int = 5555,
 ) : Closeable {
+    init {
+        require(isAllowedLoopbackHost(host)) {
+            "LocalAdb refuses non-loopback target host: $host"
+        }
+    }
+
     enum class Access { READY, NOT_APPROVED, UNREACHABLE, UNSUPPORTED }
 
     private var socket: Socket? = null
@@ -34,6 +41,9 @@ class LocalAdb(
 
     @Synchronized
     fun connect(mayAsk: Boolean): Access {
+        require(isAllowedLoopbackHost(host)) {
+            "LocalAdb refuses non-loopback target host: $host"
+        }
         if (socket?.isClosed == false) return Access.READY
         return try {
             val address = InetSocketAddress(host, port)
@@ -155,11 +165,22 @@ class LocalAdb(
         nextStreamId = 1
     }
 
-    private companion object {
-        const val CONNECT_TIMEOUT_MS = 2_000
-        const val READ_TIMEOUT_MS = 5_000
-        const val APPROVAL_TIMEOUT_MS = 60_000
-        const val APPROVAL_RECHECK_MS = 1_000
-        const val MAX_COMMAND_TIMEOUT_MS = 30_000
+    companion object {
+        private const val CONNECT_TIMEOUT_MS = 2_000
+        private const val READ_TIMEOUT_MS = 5_000
+        private const val APPROVAL_TIMEOUT_MS = 60_000
+        private const val APPROVAL_RECHECK_MS = 1_000
+        private const val MAX_COMMAND_TIMEOUT_MS = 30_000
+
+        internal fun isAllowedLoopbackHost(host: String): Boolean {
+            val trimmed = host.trim()
+            if (trimmed.isEmpty()) return false
+            if (trimmed != "127.0.0.1" && trimmed != "::1" &&
+                !trimmed.equals("localhost", ignoreCase = true)
+            ) {
+                return false
+            }
+            return runCatching { InetAddress.getByName(trimmed).isLoopbackAddress }.getOrDefault(false)
+        }
     }
 }

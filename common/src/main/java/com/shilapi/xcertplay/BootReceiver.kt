@@ -3,14 +3,22 @@ package com.shilapi.xcertplay
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import android.util.Log
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Starts the CarPlay host after boot when the user has enabled the startup option. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
-            intent.action != ACTION_BOOT_HU
-        ) {
+        val action = intent.action
+        val elapsedMs = SystemClock.elapsedRealtime()
+        if (!BootBroadcastGuard.allowBootAction(action, elapsedMs, customBootHandled.get())) {
+            if (BootBroadcastGuard.isCustomBootAction(action)) {
+                Log.w(TAG, "Ignored custom boot action $action outside boot window (elapsed=${elapsedMs}ms)")
+            }
+            return
+        }
+        if (BootBroadcastGuard.isCustomBootAction(action) && !customBootHandled.compareAndSet(false, true)) {
             return
         }
         val launchEnabled = AirPlayPersistence.loadAutoStartOnBoot(context)
@@ -39,6 +47,6 @@ class BootReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TAG = "xcertplay-boot"
-        const val ACTION_BOOT_HU = "android.intent.action.ACTION_BOOT_HU"
+        val customBootHandled = AtomicBoolean(false)
     }
 }

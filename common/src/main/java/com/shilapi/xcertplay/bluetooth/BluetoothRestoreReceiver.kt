@@ -3,8 +3,12 @@ package com.shilapi.xcertplay.bluetooth
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import com.shilapi.xcertplay.AirPlayPersistence
+import com.shilapi.xcertplay.BootBroadcastGuard
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Restores the head-unit Bluetooth after DiPlay's auto-Bluetooth switch turned it off.
@@ -16,22 +20,38 @@ import com.shilapi.xcertplay.AirPlayPersistence
 class BluetoothRestoreReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
-        val boot = action == Intent.ACTION_BOOT_COMPLETED ||
-            action == ACTION_BOOT_HU ||
-            action == "android.intent.action.QUICKBOOT_POWERON"
-        val shutdown = action == Intent.ACTION_SHUTDOWN || action == ACTION_SHUTDOWN_HU
-        if (!boot && !shutdown) return
+        val bootCandidate = action == Intent.ACTION_BOOT_COMPLETED ||
+            BootBroadcastGuard.isCustomBootAction(action)
+        val shutdownCandidate = action == Intent.ACTION_SHUTDOWN ||
+            action == BootBroadcastGuard.ACTION_SHUTDOWN_HU
+        if (!bootCandidate && !shutdownCandidate) return
         if (!AirPlayPersistence.loadAutoBluetooth(context)) return
+
         val app = context.applicationContext
         val pending = AutoBluetooth.pendingRestore(app)
-        val enabled = AutoBluetooth.isEnabled(app)
-        if (shutdown) {
+        if (shutdownCandidate) {
+            val interactive = runCatching {
+                app.getSystemService(PowerManager::class.java)?.isInteractive ?: true
+            }.getOrDefault(true)
+            if (!BootBroadcastGuard.allowShutdownAction(action, pending, interactive)) {
+                Log.w(TAG, "Ignored untrusted shutdown broadcast $action (pending=$pending interactive=$interactive)")
+                return
+            }
             // HU shutdown is an ordered broadcast with a ~2.5 s budget. Keep this path short:
             // one binder request, no file/network IO.
-            if (!enabled) {
+            if (!AutoBluetooth.isEnabled(app)) {
                 Log.i(TAG, "shutdown ($action) with Bluetooth off; restoring")
                 AutoBluetooth.ensureOn(app, "shutdown broadcast") { Log.i(TAG, it) }
             }
+            return
+        }
+
+        val elapsedMs = SystemClock.elapsedRealtime()
+        if (!BootBroadcastGuard.allowBootAction(action, elapsedMs, customBootHandled.get())) {
+            Log.w(TAG, "Ignored custom boot action $action outside boot window (elapsed=${elapsedMs}ms)")
+            return
+        }
+        if (BootBroadcastGuard.isCustomBootAction(action) && !customBootHandled.compareAndSet(false, true)) {
             return
         }
         if (pending) {
@@ -42,7 +62,6 @@ class BluetoothRestoreReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TAG = "DiPlay-BtRestore"
-        const val ACTION_SHUTDOWN_HU = "android.intent.action.ACTION_SHUTDOWN_HU"
-        const val ACTION_BOOT_HU = "android.intent.action.ACTION_BOOT_HU"
+        val customBootHandled = AtomicBoolean(false)
     }
 }

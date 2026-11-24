@@ -1,0 +1,3 @@
+<resources>
+    <bool name="config_enable_map_embed_service">true</bool>
+</resources>

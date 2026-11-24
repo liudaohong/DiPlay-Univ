@@ -44,7 +44,11 @@ internal class CustomThemeLayerView(
     }
     /** Animated GIF source; movie is null for PNG/JPEG/BMP. */
     private val movie: Movie? by lazy {
-        layer.src?.takeIf { it.name.endsWith(".gif", ignoreCase = true) }?.let { file ->
+        layer.src?.takeIf {
+            it.name.endsWith(".gif", ignoreCase = true) &&
+                it.isFile &&
+                it.length() in 1L..CustomThemeRepository.MAX_ASSET_FILE_BYTES
+        }?.let { file ->
             runCatching { Movie.decodeFile(file.absolutePath) }.getOrNull()
         }
     }
@@ -161,6 +165,9 @@ internal class CustomThemeLayerView(
     }
 
     private fun decodeBoundedBitmap(file: java.io.File): Bitmap? = runCatching {
+        if (!file.isFile || file.length() !in 1L..CustomThemeRepository.MAX_ASSET_FILE_BYTES) {
+            return@runCatching null
+        }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {

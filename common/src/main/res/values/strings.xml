@@ -786,5 +786,8 @@ CarPlay, right here on your car display.</string>
     <string name="car_bluetooth_audio_title">Display-only + car Bluetooth audio (Experimental)</string>
     <string name="car_bluetooth_audio_description">Advertise CarPlay display only so music and calls stay on the car\'s native Bluetooth. Disables Auto Bluetooth off.</string>
     <string name="wifi_direct_scan_pause_title">Pause background Wi-Fi scans during Wi-Fi Direct (ADB)</string>
-    <string name="wifi_direct_scan_pause_description">Uses approved local ADB to pause periodic Wi-Fi network scans while Wi-Fi Direct CarPlay is running, reducing 10-second audio stutter. Safely skipped without ADB.</string>
+    <string name="wifi_direct_scan_pause_description">Uses approved local ADB to pause periodic Wi-Fi network scans while Wi-Fi Direct CarPlay is running, reducing 10-second audio stutter. Safely skipped without ADB. Changan UNI-V native cluster projection does not need network ADB; turn off port 5555 when unused.</string>
+    <string name="porthole_theme_import_sandbox">Import themes into private app sandbox</string>
+    <string name="porthole_theme_imported_sandbox">Imported %1$d themes into the private app folder and switched to it.</string>
+    <string name="porthole_theme_import_empty">No valid themes found to import from the external folder.</string>
 </resources>

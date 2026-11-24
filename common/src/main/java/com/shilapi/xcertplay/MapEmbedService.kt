@@ -73,7 +73,13 @@ class MapEmbedService : Service() {
         val caller = packageManager.getNameForUid(message.sendingUid) ?: "uid ${message.sendingUid}"
         when (message.what) {
             MSG_ATTACH -> attach(client, caller, message.data)
-            MSG_RESIZE -> embeds[client.binder]?.resize(message.data.getInt(KEY_WIDTH), message.data.getInt(KEY_HEIGHT))
+            MSG_RESIZE -> {
+                val w = message.data.getInt(KEY_WIDTH)
+                val h = message.data.getInt(KEY_HEIGHT)
+                if (w in 1..MAX_DIMENSION && h in 1..MAX_DIMENSION) {
+                    embeds[client.binder]?.resize(w, h)
+                }
+            }
             MSG_DETACH -> embeds.remove(client.binder)?.release()
         }
     }
@@ -83,9 +89,13 @@ class MapEmbedService : Service() {
             refuse(client, caller, ERROR_UNSUPPORTED)
             return
         }
+        val width = data.getInt(KEY_WIDTH)
+        val height = data.getInt(KEY_HEIGHT)
         val error = when {
             !AirPlayPersistence.loadLauncherMapSharing(this) -> ERROR_DISABLED
             data.getBinder(KEY_HOST_TOKEN) == null -> ERROR_BAD_REQUEST
+            width !in 1..MAX_DIMENSION || height !in 1..MAX_DIMENSION -> ERROR_BAD_REQUEST
+            !embeds.containsKey(client.binder) && embeds.size >= MAX_EMBEDS -> ERROR_BUSY
             else -> null
         }
         if (error != null) {
@@ -232,6 +242,9 @@ class MapEmbedService : Service() {
         const val ERROR_DISABLED = "disabled" // the driver has not allowed sharing in DiPlay
         const val ERROR_UNSUPPORTED = "unsupported" // Android 10 or older
         const val ERROR_BAD_REQUEST = "bad_request"
+        const val ERROR_BUSY = "busy" // cap concurrent embed decoders to protect hardware codec slots
+        private const val MAX_EMBEDS = 1
+        private const val MAX_DIMENSION = 4096
 
         /** Keeps the stream's 8:3 shape and fills the view, cutting the edges that do not fit. */
         internal fun cropToFill(view: TextureView, width: Int, height: Int) {

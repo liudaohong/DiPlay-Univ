@@ -4,11 +4,13 @@ import com.shilapi.xcertplay.airplay.RtspMessage
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.net.URI
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Collections
@@ -49,12 +51,13 @@ class SettingsBackupServer(
     private val answering = Any()
     private var token: String = ""
     private var code: String = ""
-    @Volatile private var wrongCodes = 0
+    private val wrongCodesByIp = ConcurrentHashMap<String, Int>()
+    @Volatile private var totalWrongCodes = 0
     @Volatile private var closed = true
     /** Where the typed code leads on the page, for example "#report". */
     @Volatile var landing = ""
-    /** False once too many wrong codes were typed. The link in the QR code keeps working. */
-    val codeEntryOpen: Boolean get() = codePage != null && wrongCodes < MAX_WRONG_CODES
+    /** False once too many wrong codes were typed globally. The link in the QR code keeps working. */
+    val codeEntryOpen: Boolean get() = codePage != null && totalWrongCodes < MAX_WRONG_CODES_GLOBAL
     /** Called on a connection thread when the last allowed wrong code was typed. */
     var onCodeEntryClosed: (() -> Unit)? = null
     var onImported: ((SettingsImportOutcome) -> Unit)? = null
@@ -84,12 +87,13 @@ class SettingsBackupServer(
         // A typed address is worth keeping the same: the browser remembers it, and next time only the
         // code has to be typed. The link in the QR code does not care which port it carries.
         val bound = (if (codePage != null) listen(typedPort) else null) ?: listen(0) ?: return null
-        val random = ByteArray(8)
+        val random = ByteArray(TOKEN_BYTES)
         SecureRandom().nextBytes(random)
         token = random.joinToString("") { "%02x".format(it) }
         // Not String.format: in some locales it writes other digits than the ones a keyboard types.
         code = SecureRandom().nextInt(CODE_SPACE).toString().padStart(CODE_DIGITS, '0')
-        wrongCodes = 0
+        wrongCodesByIp.clear()
+        totalWrongCodes = 0
         server = bound
         connections = ThreadPoolExecutor(0, MAX_CONNECTIONS, 30L, TimeUnit.SECONDS, SynchronousQueue()) { task ->
             Thread(task, "settings-backup-connection").apply { isDaemon = true }
@@ -157,13 +161,16 @@ class SettingsBackupServer(
     private fun serve(socket: Socket) {
         socket.use {
             runCatching {
+                val peer = it.inetAddress
+                if (!isAllowedClientAddress(peer)) return
+                val clientKey = peer?.hostAddress ?: "unknown"
                 it.soTimeout = 10_000
                 it.tcpNoDelay = true
                 val request = readRequest(it.getInputStream()) ?: return
                 // A failure while preparing the answer is told to the browser; without an answer it
                 // would show a connection that opened and then gave nothing.
                 val (status, headers, body) = synchronized(answering) {
-                    runCatching { respond(request) }.getOrElse { failed() }
+                    runCatching { respond(request, clientKey) }.getOrElse { failed() }
                 }
                 it.getOutputStream().apply {
                     write(
@@ -172,7 +179,7 @@ class SettingsBackupServer(
                             RtspMessage.Response(
                                 protocol = "HTTP/1.1",
                                 status = status,
-                                headers = headers + ("Connection" to "close"),
+                                headers = SECURITY_HEADERS + headers + ("Connection" to "close"),
                                 body = body,
                             ),
                         ),
@@ -222,12 +229,18 @@ class SettingsBackupServer(
         return null
     }
 
-    private fun respond(request: RtspMessage.Request): Triple<Int, Map<String, String>, ByteArray> {
+    internal fun respond(
+        request: RtspMessage.Request,
+        clientIp: String = "127.0.0.1",
+    ): Triple<Int, Map<String, String>, ByteArray> {
+        if (request.method == "POST" && !isAllowedPostOrigin(request)) {
+            return forbidden("Cross-origin POST rejected")
+        }
         val path = request.path.substringBefore('?')
         if (codePage != null && path == "/" && request.method == "GET") {
             return Triple(200, mapOf("Content-Type" to "text/html; charset=utf-8", "Cache-Control" to "no-store"), codePage)
         }
-        if (codePage != null && path == "/code" && request.method == "POST") return checkCode(request.body)
+        if (codePage != null && path == "/code" && request.method == "POST") return checkCode(request.body, clientIp)
         val prefix = "/b/$token"
         val authorized = path == prefix || path.startsWith("$prefix/")
         if (!authorized) return notFound()
@@ -268,20 +281,38 @@ class SettingsBackupServer(
     }
 
     /**
-     * A typed code is short enough to guess, so only a few wrong ones are allowed. After that no code
-     * is accepted, not even the right one, until the page is opened again on the head unit.
+     * A typed code is short enough to guess, so only [MAX_WRONG_CODES] wrong tries are allowed per
+     * client IP (and [MAX_WRONG_CODES_GLOBAL] across all peers), preventing a bystander device on
+     * the LAN from locking out the car owner's phone with 5 bad guesses.
      */
-    private fun checkCode(body: ByteArray): Triple<Int, Map<String, String>, ByteArray> {
+    internal fun checkCode(
+        body: ByteArray,
+        clientIp: String = "127.0.0.1",
+    ): Triple<Int, Map<String, String>, ByteArray> {
         val headers = mapOf("Content-Type" to "application/json", "Cache-Control" to "no-store")
         fun answer(status: Int, json: String) = Triple(status, headers, json.toByteArray(Charsets.UTF_8))
-        if (wrongCodes >= MAX_WRONG_CODES) return answer(403, "{\"locked\":true}")
+        val ipWrong = wrongCodesByIp[clientIp] ?: 0
+        if (ipWrong >= MAX_WRONG_CODES || totalWrongCodes >= MAX_WRONG_CODES_GLOBAL) {
+            return answer(403, "{\"locked\":true}")
+        }
         val typed = String(body, 0, minOf(body.size, MAX_TYPED_BYTES), Charsets.UTF_8).filter { it in '0'..'9' }
         if (typed.length == CODE_DIGITS && tokenMatches(code, typed)) return answer(200, "{\"path\":\"/b/$token/$landing\"}")
-        wrongCodes++
-        if (wrongCodes < MAX_WRONG_CODES) return answer(403, "{\"left\":${MAX_WRONG_CODES - wrongCodes}}")
-        onCodeEntryClosed?.invoke()
+        val nextIpWrong = ipWrong + 1
+        wrongCodesByIp[clientIp] = nextIpWrong
+        totalWrongCodes++
+        val left = minOf(MAX_WRONG_CODES - nextIpWrong, MAX_WRONG_CODES_GLOBAL - totalWrongCodes)
+        if (left > 0) return answer(403, "{\"left\":$left}")
+        if (totalWrongCodes >= MAX_WRONG_CODES_GLOBAL) {
+            onCodeEntryClosed?.invoke()
+        }
         return answer(403, "{\"locked\":true}")
     }
+
+    private fun forbidden(reason: String) = Triple(
+        403,
+        mapOf("Content-Type" to "text/plain", "Cache-Control" to "no-store"),
+        reason.toByteArray(Charsets.UTF_8),
+    )
 
     private fun failed() = Triple(500, mapOf("Content-Type" to "text/plain", "Cache-Control" to "no-store"),
         "The head unit could not prepare this. Try again.".toByteArray(Charsets.UTF_8))
@@ -297,14 +328,35 @@ class SettingsBackupServer(
         private const val MAX_REQUEST = 2 shl 20
         const val EXPORT_FILE = "diplay-settings.json"
         const val REPORT_FILE = "diplay-report.txt"
+        const val TOKEN_BYTES = 16
         const val CODE_DIGITS = 6
         private const val CODE_SPACE = 1_000_000
-        /** Five tries in a million codes: one page opening is guessed about once in 200,000. */
+        /** Five tries per IP (20 globally) in a million codes. */
         const val MAX_WRONG_CODES = 5
+        const val MAX_WRONG_CODES_GLOBAL = 20
         private const val MAX_TYPED_BYTES = 64
         private const val TLS_HANDSHAKE: Byte = 0x16
         /** Short, the same four keys, and no browser refuses it. Unprivileged apps cannot use 80. */
         const val TYPED_PORT = 8888
+        private val SECURITY_HEADERS = mapOf(
+            "X-Content-Type-Options" to "nosniff",
+            "Referrer-Policy" to "no-referrer",
+        )
+
+        internal fun isAllowedClientAddress(address: InetAddress?): Boolean =
+            address != null && (address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress)
+
+        internal fun isAllowedPostOrigin(request: RtspMessage.Request): Boolean {
+            val origin = request.headers["origin"]?.trim()?.takeIf { it.isNotEmpty() } ?: return true
+            if (origin.equals("null", ignoreCase = true)) return false
+            val hostHeader = request.headers["host"]?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
+            val originAuthority = runCatching {
+                val uri = URI(origin)
+                val h = uri.host?.lowercase() ?: return@runCatching null
+                if (uri.port > 0) "$h:${uri.port}" else h
+            }.getOrNull() ?: return false
+            return originAuthority == hostHeader
+        }
 
         /**
          * Byte count at which [RtspMessage.parseMessages] can return the first message, or null while

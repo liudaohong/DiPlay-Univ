@@ -3970,6 +3970,19 @@ class DiPlayActivity : ComponentActivity() {
             LinearLayout.LayoutParams(-2, dp(48)),
         )
         parent.addView(dirLine)
+        if (AirPlayPersistence.loadClusterThemeDir(this).isNotBlank()) {
+            parent.addView(
+                button(getString(R.string.porthole_theme_import_sandbox), false) {
+                    val count = CustomThemeRepository.importExternalThemesToSandbox(this)
+                    toast(
+                        if (count > 0) getString(R.string.porthole_theme_imported_sandbox, count)
+                        else getString(R.string.porthole_theme_import_empty),
+                    )
+                    if (count > 0) render()
+                },
+                matchButton(4, 48),
+            )
+        }
         parent.addView(label(
             getString(R.string.porthole_theme_folder_count, customs.size),
             12,

@@ -1,3 +1,4 @@
 <resources>
     <bool name="config_advanced_audio_channel_mapping">false</bool>
+    <bool name="config_enable_map_embed_service">false</bool>
 </resources>

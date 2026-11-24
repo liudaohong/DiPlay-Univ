@@ -784,5 +784,8 @@ iPhone 出现提示时允许“信任”和使用 CarPlay。</string>
     <string name="car_bluetooth_audio_title">纯投屏 + 原车蓝牙音频（实验性）</string>
     <string name="car_bluetooth_audio_description">仅向 iPhone 声明 CarPlay 画面，音频保持走车机原生蓝牙通道；开启时会自动关闭「自动开关蓝牙」。</string>
     <string name="wifi_direct_scan_pause_title">Wi-Fi Direct 时暂停后台 Wi-Fi 扫描（需 ADB）</string>
-    <string name="wifi_direct_scan_pause_description">通过已授权的本地网络 ADB 暂停车机周期性 Wi-Fi 搜索，降低约 10 秒一次的周期性断音卡顿；未授权 ADB 时会自动跳过。</string>
+    <string name="wifi_direct_scan_pause_description">通过已授权的本地网络 ADB 暂停车机周期性 Wi-Fi 搜索，降低约 10 秒一次的周期性断音卡顿；未授权 ADB 时会自动跳过。注：UNI-V 原厂仪表投屏无需开启网络 ADB，不使用本项时建议关闭车机 5555 端口。</string>
+    <string name="porthole_theme_import_sandbox">一键导入主题到应用安全目录</string>
+    <string name="porthole_theme_imported_sandbox">已将 %1$d 套主题安全导入应用私有目录并自动切换。</string>
+    <string name="porthole_theme_import_empty">外部目录中未找到可导入的有效主题。</string>
 </resources>
