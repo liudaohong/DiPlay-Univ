@@ -18,10 +18,10 @@ class DisplayOnlyAirPlayInfoTest {
         val info = AirPlayInfoPlist.build(config)
         assertFalse(info.containsKey("audioFormats"))
         assertFalse(info.containsKey("audioLatencies"))
-        @Suppress("UNCHECKED_CAST")
-        val modes = info["modes"] as Map<String, Any?>
-        @Suppress("UNCHECKED_CAST")
-        val resources = modes["resources"] as List<Map<String, Any?>>
-        assertTrue(resources.size == 1 && resources[0]["resourceID"] == 1)
+        val fullFeatures = AirPlayInfoPlist.features(config.copy(audio = true))
+        val displayOnlyFeatures = AirPlayInfoPlist.features(config)
+        assertTrue(displayOnlyFeatures != fullFeatures)
+        assertTrue((displayOnlyFeatures and 0x10004540a00L) == 0L)
+        assertTrue(info["features"] == displayOnlyFeatures)
     }
 }

@@ -33,6 +33,9 @@
 -keep class com.shilapi.xcertplay.network.WifiScanPauseMain {
     public static void main(java.lang.String[]);
 }
+-keepclassmembers enum com.shilapi.xcertplay.network.WifiScanSwitchResult {
+    *;
+}
 
 # Readable crash traces from the field: keep line numbers and the original
 # source file name.

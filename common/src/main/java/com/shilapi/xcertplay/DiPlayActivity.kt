@@ -534,6 +534,10 @@ class DiPlayActivity : ComponentActivity() {
     private fun settings(host: LinearLayout): LinearLayout {
         // Read from arm's length: 15sp row titles were fine print on a 1920x720 panel.
         textScale = 1.22f
+        host.isFocusable = true
+        host.isFocusableInTouchMode = true
+        host.requestFocus()
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         host.addView(label(getString(R.string.your_drive_your_way), 20, TEXT, true))
         host.addView(label(getString(R.string.apply_reconnects_carplay_for_size_resolution_music_buffer), 11, MUTED).apply { setPadding(0, dp(6), 0, dp(10)) })
         host.addView(

@@ -864,6 +864,10 @@ private const val MAIN_STREAM_TYPE = 110
         val wasMedia = mediaAudioTypes.contains(id)
         alertAudioIds.remove(id)
         telephonyAudioIds.remove(id)
+        if (id.audioType == "telephony" && telephonyAudioIds.isEmpty()) {
+            callEchoReference?.reset()
+            callEchoReference = null
+        }
         audioRenderers.remove(id)?.close()
         updateMediaAudio(id, false)
         updateNavigationAudio(id, null, false)
@@ -1535,6 +1539,7 @@ private class VideoDecoder(
         duplicateConfigLogged = false
         backlogRecovery.reset()
         releaseDecoder()
+        backlogRecovery.reset()
         referenceChain.reset()
         val surface = outputSurface ?: placeholderSurface ?: return
         val codec = config.codec
@@ -1828,6 +1833,7 @@ private class VideoDecoder(
         report("recovery: $reason; waiting for keyframe")
         // Recreate with codec-specific data: flush can discard CSD before the first output.
         releaseDecoder()
+        backlogRecovery.reset()
         referenceChain.reset()
         requestKeyFrameIfDue()
     }

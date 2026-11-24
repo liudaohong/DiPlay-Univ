@@ -17,6 +17,8 @@ object AirPlayInfoPlist {
     private const val DISPLAY_FEATURE_KNOBS = 0x02
     private const val DISPLAY_FEATURE_HIGH_FIDELITY_TOUCH = 0x08
     private const val CARPLAY_FEATURES = 0x615653aee2L
+    private const val CARPLAY_AUDIO_FEATURES = 0x10004540a00L
+    private val CARPLAY_FEATURES_NO_AUDIO = CARPLAY_FEATURES and CARPLAY_AUDIO_FEATURES.inv()
 
     private const val RESOURCE_SCREEN = 1
     private const val RESOURCE_AUDIO = 2
@@ -49,7 +51,8 @@ object AirPlayInfoPlist {
     )
 
     /** Discovery and /info must describe the same receiver capabilities. */
-    fun features(@Suppress("UNUSED_PARAMETER") config: AirPlayConfig): Long = CARPLAY_FEATURES
+    fun features(config: AirPlayConfig): Long =
+        if (!config.audio) CARPLAY_FEATURES_NO_AUDIO else CARPLAY_FEATURES
 
     fun build(config: AirPlayConfig): Map<String, Any?> {
         val displays = arrayListOf<Any?>(
@@ -73,7 +76,7 @@ object AirPlayInfoPlist {
             "rightHandDrive" to config.rightHandDrive,
             "keepAliveLowPower" to false,
             "keepAliveSendStatsAsBody" to false,
-            "modes" to modes(config.audio),
+            "modes" to modes(),
         )
         if (config.audio) {
             info["audioLatencies"] = audioLatencies()
@@ -117,12 +120,8 @@ object AirPlayInfoPlist {
         "unborrowConstraint" to CONSTRAINT_ANYTIME,
     )
 
-    private fun modes(includeAudio: Boolean = true): Map<String, Any?> = linkedMapOf(
-        "resources" to if (includeAudio) {
-            listOf(resource(RESOURCE_SCREEN), resource(RESOURCE_AUDIO))
-        } else {
-            listOf(resource(RESOURCE_SCREEN))
-        },
+    private fun modes(): Map<String, Any?> = linkedMapOf(
+        "resources" to listOf(resource(RESOURCE_SCREEN), resource(RESOURCE_AUDIO)),
         // Declared again after the A/B test of 2026-10-19: removing appStates did not shorten the
         // two-second blank before an app appears (the phone simply sends no frames while it
         // launches the app), so this stays as upstream declares it.
