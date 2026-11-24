@@ -1,222 +1,104 @@
-# diplay-Changan（DiPlay 长安定制版）
-
-在车机（长安 UNI-V 2022 款）上运行 **无线 CarPlay** 的适配版本。
-
-**原作者**：[shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay)（v0.2.11）｜原项目文档站：[https://shihabal3amri.github.io/DiPlay/](https://shihabal3amri.github.io/DiPlay/)
-
-本仓库基于上述原项目二次开发。
-
-> ⚠️ 
->
-> **仅供尝鲜，不对后续 Bug 负责。**
-> 本项目仅在 
->
-> **22 款 UNI-V 尊贵版**
->
-> （飞鱼 OS / Android 9 / 已破解车机）上测试通过。
-> 其他车型可能有用，但请
->
-> **自行尝试**
->
-> ，使用前请确认你的车机支持并接受相应风险。
-
-### 下载
-
-| | 链接 | 说明 |
-| :-- | :-- | :-- |
-| **最新版本** | [![最新版本](https://img.shields.io/gitee/release-date/jiuyueji/diplay_changan?style=flat-square&label=%E6%9C%80%E6%96%B0%E7%89%88)](https://gitee.com/jiuyueji/diplay_changan/releases/latest) | 直达最新一次发布，附件里是编译好的 APK |
-| **全部版本** | [![全部版本](https://img.shields.io/gitee/v/release/jiuyueji/diplay_changan?style=flat-square&label=%E7%89%88%E6%9C%AC)](https://gitee.com/jiuyueji/diplay_changan/releases) | 全部历史版本，按需挑选下载 |
-
-> 也可以直接下载最新 APK：[dica.apk](https://gitee.com/jiuyueji/diplay_changan/releases/download/v0.2.25-hud-test-20261108/dica.apk)　｜　精简版：[dica-release.apk](https://gitee.com/jiuyueji/diplay_changan/releases/download/v0.2.25-hud-test-20261108/dica-release.apk)
-
-**系统要求**：APK 支持 Android 7.1+（API 25）；Android 7.1–8.1 支持为新增能力（尚未在实车上验证）。无线支持 Wi-Fi Direct、车机热点或同一局域网 / Existing Wi-Fi。Android 9 的 Wi-Fi Direct 使用依赖固件的旧路径（生成组凭据、频段未经核实）；Android 10+ 会校验协商后的组频段。
-
-## 取景窗自定义主题
-
-仪表/取景窗可以完全换成自己设计的主题：1920×720 画布，支持图片（含 GIF 和专辑封面 `@cover`）、渐变、形状、文字、车速/转速仪表、实时槽位、异形 `vector`、16 段音频频谱 `spectrum`，以及数据绑定、关键帧、显示条件、事件规则、场景状态、开场和序列动画。
-
-配套的 Windows 可视化制作器（含预览、校验、一键 adb 推送）：
-
-**https://gitee.com/jiuyueji/di-play-theme-maker-wpf**
-
-制作器 README 里有「让 AI 生成你想要的主题」的完整提示词模板；主题 JSON 规范见制作器仓库的 [CUSTOM_THEMES.md](https://gitee.com/jiuyueji/di-play-theme-maker-wpf/blob/master/CUSTOM_THEMES.md)。
-
-典型流程：
-
-1. 在制作器里新建或导入主题；
-2. 用 AI 按你的描述生成 `theme.json` + 图片素材；
-3. 制作器预览、微调；
-4. 手机或车机连 USB，一键推送；
-5. 车机切到该取景窗主题。
-
-***
-
-## 本项目实现的功能
-
-**CarPlay 接收端（基础能力，继承自 DiPlay）**：车机开启热点后，iPhone 通过无线方式建立 CarPlay 会话，实现导航、音乐、电话在车机屏幕上运行。
-
-**针对长安 UNI-V（飞鱼 OS）的适配与修复**：
-
-### 长安专属改造
-
-
-
-* **仪表盘投屏**：新增通用 "仪表盘" 分区入口，支持**整屏镜像**（整个 CarPlay 界面投到仪表）与**导航流**两种模式；非比亚迪车机默认开启；Display 枚举带通用兜底（任意非默认 display），长安车机可直接使用。**画面优先级最高：本项目的所有优化都不允许推迟画面**（曾试过"延迟画面对齐音频"的方案，已撤销）
-
-* **无线热点 2.4GHz 放行**：长安热点工作在 2.4GHz，修复原版对频段的强制检查导致的无法启动
-
-* **热点地址 IPv4 优先**：修复长安 Manual 热点场景下 iPhone 无法发现车机 AirPlay 服务的问题（IPv6 link-local 兜底）
-
-### 手势与仪表盘控制
-
-
-
-* **三指左右滑飞屏**：三指左滑 / 右滑在**仅导航 → 整机镜像 → 原车机画面**三态之间流转，切换结果持久保存，不需要原车高德在后台运行。滑动语义为"前进 / 后退"：左滑前进（原车机画面 → 整机镜像 → 仅导航），右滑后退（仅导航 → 整机镜像 → 原车机画面）
-
-* **继续左滑进入新的导航视图（取景窗）**：从「仅导航」继续三指左滑，会进入新的导航视图。如果仪表盘画面来源选择的是 **Apple 完整地图**，该视图左上角会显示车道指引；选择其他来源时没有车道指引
-
-* **三指滑动判定优化**：左 / 右滑支持带轻微下倾的滑动（水平方向主导即可），不再受固定垂直偏移限制
-
-* **三指下拉打开设置（可能偶尔失败）**：若在设置中将"下拉打开设置"设为三指，可能因车机触摸识别偶尔失败，**多尝试几次或改用四指下拉**
-
-* **仪表盘画面调整（已可用）**：设置中的 "仪表盘画面调整" 支持调整仪表盘投屏区域（方框 rect）——通过滑块调整左上角位置与宽高，投屏画面等比填充到该区域
-
-* **卡片独立缩放**：转向卡 / 到达卡 / 车道卡 / 路名卡 / 歌曲卡各自可调 **60%~160%**，取代原来的"小 / 中 / 大"三档。100% 等于原"中"档，不调整则外观不变；拖动即时生效，无需重连
-
-* **卡片独立位置**：五张卡均可设置水平 / 垂直坐标（相对 1920×720 仪表画布左上角），改完点「应用」立即生效
-
-* **歌曲信息卡**：仪表盘显示当前播放的「歌名 — 歌手」，位置与大小同上可调。**仅导航与整机镜像两种模式下都会显示**（不受"仅导航模式"约束）
-
-* **卡片阴影改浅**：原阴影半径按卡片高度比例计算，在高卡片下方会糊成一大块实心暗色；现改为小固定偏移 + 淡填充，观感更轻盈（**本版视觉变化点**，仅影响卡片投影，不影响数据与布局）
-
-### 音频
-
-* **导航与媒体音量分开调节**：支持分别设置媒体与导航的音频声道——**媒体声道默认 0（自动/按 usage 路由），可手动设为 12；导航声道可设为 10**（需车机支持高级音频通道映射，设置中开启"高级音频通道映射"后生效）
-
-
-* **音乐缓冲可选档位**：150 / 300 / **500（默认）** / 1000 / 1500 ms。缓冲越大越抗卡顿、音画偏移越大；越小越同步、但对网络间隙更敏感
-  实测本车网络到达间隙可达 **389~396 ms**，**低于 400 ms 的档位在高速等真实路况下可能偶发断续**，日常建议 500
-
-* **导航 / 语音提示独立缓冲**：播报声道单独使用 400 ms 抖动缓冲，与音乐互不影响，导航说话不再卡顿
-
-* **音量压低自恢复**：手机拍照、通知、Siri 等发声时，CarPlay 会要求车机压低音量；现按协议执行并带 **12 秒自恢复**兜底，压低**只作用于音乐**，不会压低导航提示音与通话
-
-### 车机联动
-
-
-
-* **氛围灯律动**：把 CarPlay 正在播放的音乐会话交给车机，由车机原生音乐律动驱动氛围灯，暂停时回到静态色。**想要更好的体验，请同时关闭车机蓝牙中的「媒体音频」和 App 内的「方向盘媒体键交给车机蓝牙」**；否则音乐可能被蓝牙抢走，律动不工作。
-
-* **昼夜模式跟随**：自动跟随车机昼夜主题切换 CarPlay 深色 / 浅色外观；新增 **「跟随车灯状态」**，大灯开 → 深色，大灯关 → 浅色。注意：如果当前 iPhone 时间已经是夜间，CarPlay 会强制使用深色模式，车灯/车机状态无法把它切回浅色。
-
-* **画面调节**：CarPlay 画面裁剪 / 缩放调节（CarPlayPicture）
-
-* **Wi-Fi Direct 连接**：支持 Android 9 legacy P2P 组（DIRECT-xx）连接方式
-
-* **现有 Wi-Fi / 同局域网连接**：不创建热点，直接复用车机已连接的现有 Wi-Fi（如路由器 / 随身 Wi-Fi）。设置中切换 "现有 Wi-Fi" 模式并填写外部 Wi-Fi 的 SSID 与 WPA2 密码（开放网络可留空）后，车机与 iPhone 保持同一网络即可建立 CarPlay；要求路由为 WPA2 或 WPA2/WPA3 混合模式并关闭客户端隔离
-
-* **冷启动补投**：若启动 App 时仪表屏尚未就绪，会在屏幕可用后**自动补做投屏**，无需手动滑动
-
-### 连接稳定性修复
-
-
-
-* **主动下发 Wi-Fi 配置（0x5703）**：主循环主动推送 + transport 就绪后重发，解决 iPhone 不请求热点配置导致的卡死
-
-* **Android 9 TCP 半开检测**：原版在 API<29 完全跳过 keepalive 调优（断线后界面永久卡死），本版用 `Os.dup` 实现约 12 秒判死并自动回到连接界面重试
-
-* **断线自动重连**：iPhone 断开后自动退回连接界面并指数退避重试（上限 30s）；尺寸未知时等待屏幕检测后自动拉起
-
-* **重连防过期**：restartGeneration 校验，旧的重连回调不会干扰新会话
-
-
-### 诊断与适配
-
-
-
-* **无文件选择器诊断导出**：长安车机缺少 DocumentsUI，支持保存到应用目录 / 屏幕直接显示诊断全文 / 分享（自动清理，仅保留最新 8 个报告）
-
-* 屏幕诊断快照：连接状态、热点后端、iAP2 命令序列、AirPlay TCP 状态一目了然
-
-### 已知问题与限制
-
-* **歌词显示取决于正在播放的音乐 App**：歌词由音乐 App 自己渲染并随投屏一起显示——**QQ 音乐会把歌词投到仪表上，Apple Music 的播放界面本身不显示歌词，因此也投不出来**。本应用额外显示的是「歌名 — 歌手」文字信息，两者互不冲突
-
-
-* **音画同步需按场景取舍**：默认 500 ms 播放稳定但歌词**略早**；150 / 300 ms 最同步但真实路况下可能**偶发断续**（实测间隙 389~396 ms）
-
-
-* **三指下拉打开设置**偶发失败（车机触摸识别问题），可改用四指下拉
-
-
-* **「跟随车灯状态」不会修改 Dock 主题**：Dock 由 iPhone 绘制，受 iOS 限制，跟随车灯状态无法改变 Dock 的主题模式。若想让 Dock 中的图标也跟随车灯状态切换，请在 CarPlay 设置 → 自定义图标中，分别选择「深色」和「自动」。
-
-
-## 版本
-
-**下载**：[最新版本](https://gitee.com/jiuyueji/diplay_changan/releases/latest) ｜ [全部版本](https://gitee.com/jiuyueji/diplay_changan/releases)
-
-* 当前版本：**v0.2.25-hud-test**（versionName `0.2.25-hud-test`，versionCode 40，debug 签名，包名 `com.shihab.diplay.hudtest`）
-
-* Release 页提供编译好的 APK（`dica.apk` 与 `dica-release.apk` 两份），可直接覆盖安装
-
-* 版本跨度较大时，**升级后建议检查「音频 → 音乐缓冲」**：当前默认值为 1000 ms（对 Wi-Fi 抖动最稳）；追求歌词同步可降到 500 / 300 ms。
-
-## 快速开始（用户）
-
-
-
-1. 从 [Releases](https://gitee.com/jiuyueji/diplay_changan/releases) 下载最新 `dica.apk`
-
-2. 安装到车机（车机需允许未知来源安装）
-
-3. 打开 DiPlay，开启车机热点，iPhone 蓝牙配对后进入 CarPlay
-
-> 认证说明：DiPlay 使用本地离线 MFi 认证资产编译（不随源码 / APK 分发）。编译与使用仅供个人尝鲜，请勿用于商业用途。
-
-## 构建（开发者）
-
-环境：Android Studio / JDK 21 / Android SDK 37（compileSdk 37）
-
-
-
-```
-# 1. 准备认证资产（不随仓库分发，自行生成或从原项目获取）
-export DIPLAY_AUTH_ASSETS_DIR=/path/to/diplay-auth-assets   # 内含 offline-mfi/{certificate.p7b, identity.pk8}
-
-# 2. 编译
-./gradlew assembleDebug --no-daemon
-# 产物：mobile/build/outputs/apk/debug/mobile-debug.apk
+# DiPlay-Univ（长安 UNI-V CarPlay 定制增强版）
+
+面向 **长安 UNI-V（2022 款 / 飞鱼 OS / Android 9 / 联发科车机平台）** 的开源 **无线 / 有线 CarPlay 接收端**。
+
+- **仓库地址**：[https://github.com/liudaohong/DiPlay-Univ](https://github.com/liudaohong/DiPlay-Univ)
+- **原始上游项目**：[shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay)（GPL-3.0，已按阶段精准移植 `v0.2.12 → v0.2.22 → main` 核心音视频、工具、连接与安全优化）
+- **开发与安全加固计划**：[plan/UPSTREAM_INTEGRATION_PLAN.md](plan/UPSTREAM_INTEGRATION_PLAN.md)
+
+> [!WARNING]
+> **仅供个人研究与非商业用途，不对实车使用引发的兼容性或驾驶风险负责。**  
+> 本仓库不含任何私有签名密钥、离线 MFi 认证资产或预编译 APK；上车使用的完整安装包需按下方「本地构建」章节自行配置认证资产与私有签名编译。
+
+---
+
+## 一、适用环境与版本信息
+
+- **当前版本**：`0.2.30`（`versionCode 45`，包名 `com.shihab.diplay.hudtest`）
+- **系统支持**：Android 7.1+（`minSdk 25`，`compileSdk 37`），支持 `arm64-v8a` / `armeabi-v7a` / `x86_64`
+- **已重点适配车型**：长安 UNI-V 2022 款（飞鱼 OS / Android 9 / MediaTek 芯片，支持免高德三指飞屏仪表投屏）；同时可直接安装至普通 Android 手机（Android 7.1–16）配合 iPhone 预演无线 CarPlay 与模拟副屏主题
+- **无线连接方式**：车机热点（2.4GHz / 5GHz 均可）、Wi-Fi Direct（兼容 Android 9 旧路径）、现有 Wi-Fi / 同局域网、以及有线 USB（NCM）
+
+---
+
+## 二、核心功能与亮点
+
+### 1. 长安 UNI-V 专属能力
+- **免高德三指飞屏仪表投屏**：三指左滑/右滑在「原车仪表 ↔ 整机镜像 ↔ 仅导航 ↔ 取景窗」之间循环切换，无需原车高德在后台运行；支持冷启动屏幕就绪自动补投。
+- **不遮挡原车行车仪表**：投屏运行于原车高德飞屏 Android 副屏层，处于原车硬件 MCU 图层之下，原车车速、挡位、转速、故障警告灯始终由 MCU 硬件置顶显示；底部默认预留 `110 px` 安全区避让仪表饰板。
+- **取景窗与自定义主题引擎**：`1920×720` 画布，支持 PNG/GIF、专辑封面 `@cover`、渐变、矢量 `vector`、16 段音乐频谱 `spectrum`、车速/转速数据绑定、状态机与规则动画；支持五张仪表卡片（转向/到达/车道/路名/歌曲）独立 X/Y 坐标与 `60%~160%` 缩放调节、仪表画面裁剪与二指切主题。
+- **原车硬件联动**：
+  - 实时车况与大灯读取（`com.wt.n2048`）：支持「跟随车灯状态」自动切换 CarPlay 日/夜模式；
+  - 原车氛围灯音乐律动：传递音乐 `AudioTrack` 会话至车机律动服务；
+  - 自动开关蓝牙 & 方向盘键：连接前自动开蓝牙、主屏就绪延时关蓝牙、断连/熄火自动恢复蓝牙；支持方向盘语音键短按屏蔽 Siri（避免与小安语音同时唤醒）。
+- **长安专属网络调优**：放行 2.4GHz 车机热点、热点地址 IPv4 优先、主动下发 Wi-Fi 配置（`0x5703`）、Android 9 `Os.dup` ~12 秒 TCP 半开检测与指数退避重连。
+
+### 2. 上游核心优化合入（视频、音频、工具与连接）
+- **视频解码与触控**：可选 **MediaTek（联发科）低延迟解码**（带异常自动回退）、视频解码队列减分配与网络抖动积压恢复、HEVC 无硬解自动回退 H.264、倒车影像退出后画幅恢复、触控通道 `TCP_NODELAY` 与慢连接拖拽合并。
+- **音频与通话升级**：集成原生 JNI **SpeexDSP 通话回声消除（`libspeex_echo.so`）与 200Hz 低频语音滤波**、音乐丢包平滑填充（`LostMusicFill`）、音频线程高优先级、独立媒体/导航声道与缓冲调节、可选「纯投屏 + 原车蓝牙音频」模式（与自动关蓝牙互斥）。
+- **免文件选择器效率工具**：针对车机缺少文件管理器痛点，内置 **手机扫码备份 / 恢复全部设置**（完整涵盖长安仪表五卡与主题配置）、**手机扫码下载脱敏诊断报告**、以及 **设置页内联中英文搜索**。
+- **连接诊断与稳定性**：首页与等待页清晰展示连接失败原因、自动记录崩溃堆栈并写入诊断报告、有线 USB 重插容错与损坏 NCM 包不断连、可选 Wi-Fi Direct 期间暂停后台扫描（ADB）。
+
+### 3. 纵深安全加固
+- **私有 Release 签名门禁**：内置 `assemblePrivateRelease` 与 `-PrequirePrivateSigning=true` 校验，支持使用个人专属 `4096-bit RSA` 签名密钥替代公开 debug 签名，防同包名 APK 覆盖劫持。
+- **本地凭据硬件加密**：基于 Android Keystore（`AES-256-GCM`）对本地 ADB 私钥、AirPlay/Lockdown 长期私钥、热点/Wi-Fi 密码与远程 MFi Token 加密落盘，支持旧版明文配置无缝原地迁移与瞬时故障防丢配对保护。
+- **协议与局域网防护**：
+  - AirPlay 控制通道强制校验 `PairVerify` 身份认证后才放行 `SETUP`/`RECORD`/`TEARDOWN`/`/command`/`/feedback`，并提供可选 **「锁定已配对 iPhone（拒绝陌生设备配对）」** 开关；
+  - `ControlFrameBuffer`、RTSP、Bplist、TLV8 报文长度与缓冲区上限防护；
+  - 扫码备份/日志 HTTP 服务采用 `128-bit` 随机路径 Token（常量时间比对）、按源 IP 独立限流、仅放行私网/回环地址与 `POST` 同源 CSRF 校验。
+- **组件暴露面最小化**：Release 包自动移除调试广播 `BenchClusterReceiver` 与 Android Auto 服务 `MyCarAppService`；Android 9 车机默认禁用 `MapEmbedService` 导出服务；广播接收器兼顾飞鱼 OS STR 休眠唤醒与行车中防抢占冷却保护；自定义主题解析施加体积/数量配额并支持「一键导入应用私有安全目录」。
+
+---
+
+## 三、本地构建指南（开发者）
+
+### 1. 构建环境要求
+- **JDK**：JDK 21
+- **Android SDK**：`compileSdk 37`（`minSdk 25`）
+- **Android NDK**：`28.0.12433566`（用于编译 `libspeex_echo.so`、`libxcertplay_i2c.so`、`liblocal_hotspot_radio.so`）
+
+### 2. 源码构建（不含 MFi 认证资产）
+```powershell
+.\gradlew.bat :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:assembleDebug --no-daemon
 ```
 
-本地构建需自行提供 `DIPLAY_AUTH_ASSETS_DIR`（含 `offline-mfi/` 目录）；缺失时仅能构建不带认证身份的源码包。
+### 3. 上车用私有签名 Release 构建（推荐）
+将离线 MFi 资产目录与私有签名密钥目录**分别放在本仓库之外的独立目录**（严禁把 `.jks` 放在 `DIPLAY_AUTH_ASSETS_DIR` 内，构建任务 `rejectBundledCredentials` 会自动拦截误打包凭据）：
 
-## 致谢与协议
+```powershell
+# 1. 指向离线 MFi 资产目录（内含 offline-mfi/certificate.p7b 与 offline-mfi/identity.pk8）
+$env:DIPLAY_AUTH_ASSETS_DIR    = "D:\path\to\diplay-auth-assets"
 
+# 2. 指向仓库外私有 Release Keystore
+$env:ANDROID_KEYSTORE_PATH     = "D:\path\to\diplay-signing-keystore\release.jks"
+$env:ANDROID_KEYSTORE_PASSWORD = "<your-store-password>"
+$env:ANDROID_KEY_ALIAS         = "<your-key-alias>"
+$env:ANDROID_KEY_PASSWORD      = "<your-key-password>"
 
+# 3. 执行私有签名 + 独立 MFi 认证打包
+.\gradlew.bat :mobile:assemblePrivateRelease -PrequirePrivateSigning=true --no-daemon
+# 产物位置：mobile\build\outputs\apk\release\mobile-release.apk
+```
 
-* 原作者：[shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay)（GPL-3.0）—— 本项目的全部基础能力均源自该开源项目
+> [!NOTE]
+> 从旧版公开 `debug` 签名切换至私有签名安装时，首次需先用「手机扫码备份设置」导出配置，卸载旧包后再安装私有签名包并扫码恢复；后续升级使用同一份私钥即可直接覆盖安装。
 
-* 感谢 [zuo-qirun/AMap Companion](https://github.com/zuo-qirun/amap-companion) 提供的仪表屏枚举思路
+---
 
-* 感谢「车机管家」与「高德助手」提供的大灯状态获取思路
+## 四、已知限制与日常建议
 
-* 接收器基于 xcertplay（GPL-3.0）；DiPlay 界面沿用 DiAuto 设计（AGPL-3.0）
+1. **原车高德联动**：仪表飞屏借用高德通道；投屏运行期间若语音让“小安”关闭高德，可能导致 CarPlay 短暂卡顿重连。
+2. **跟随车灯与 Dock 主题**：当 iOS 判定本地时间为夜间时，CarPlay 会强制保持深色；Dock 图标需在 iPhone `CarPlay 设置 → 自定义图标` 中开启自动深浅色。
+3. **日常安全建议**：
+   - UNI-V 原厂仪表投屏无需车机网络 ADB，若未使用实验性「暂停后台 Wi-Fi 扫描」，建议关闭车机 5555 端口；
+   - 日常无线优先使用 **车机热点** 或 **Wi-Fi Direct**；若使用「现有 Wi-Fi」连接公共路由器，建议在设置中开启 **「锁定已配对 iPhone」**；
+   - 含离线 MFi 认证的自用安装包请仅用于本人实车，不要公开发布。
 
-* 项目包含 AndroidX、Bouncy Castle、JmDNS、SLF4J；源代码和许可声明随版本提供
+---
 
-* 本仓库遵循 **GPL-3.0**（见 [LICENSE](LICENSE)）
+## 五、致谢与开源协议
 
-* 仅供个人尝鲜与研究，禁止用于商业量产
-
-
-
-***
-
-> 本项目由 
->
-> **豆包 AI（Doubao）**
->
-> **DeepSeek V4.1 Flash**
->
->  辅助生成与维护。
+- 原始上游项目：[shihabal3amri/DiPlay](https://github.com/shihabal3amri/DiPlay)（GPL-3.0）
+- 感谢长安适配分支与车友实测反馈，以及 [zuo-qirun/amap-companion](https://github.com/zuo-qirun/amap-companion) 提供的仪表副屏思路
+- 底层协议与音频组件基于 xcertplay（GPL-3.0）、SpeexDSP（BSD-3-Clause）、AndroidX、Bouncy Castle、JmDNS 等开源项目（详阅 [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md)）
+- 本项目遵循 **GPL-3.0** 开源协议，详见 [LICENSE](LICENSE) 与安全说明 [SECURITY.md](SECURITY.md)。
