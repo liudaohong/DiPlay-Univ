@@ -785,4 +785,6 @@ CarPlay, right here on your car display.</string>
     <string name="call_voice_filter_description">High-pass filter below 200 Hz on call audio to reduce boomy bass and acoustic echo feedback.</string>
     <string name="car_bluetooth_audio_title">Display-only + car Bluetooth audio (Experimental)</string>
     <string name="car_bluetooth_audio_description">Advertise CarPlay display only so music and calls stay on the car\'s native Bluetooth. Disables Auto Bluetooth off.</string>
+    <string name="wifi_direct_scan_pause_title">Pause background Wi-Fi scans during Wi-Fi Direct (ADB)</string>
+    <string name="wifi_direct_scan_pause_description">Uses approved local ADB to pause periodic Wi-Fi network scans while Wi-Fi Direct CarPlay is running, reducing 10-second audio stutter. Safely skipped without ADB.</string>
 </resources>

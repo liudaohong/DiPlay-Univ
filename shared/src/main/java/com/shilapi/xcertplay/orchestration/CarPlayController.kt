@@ -49,6 +49,7 @@ import com.shilapi.xcertplay.network.ExistingWifiManager
 import com.shilapi.xcertplay.network.WifiP2pGroupManager
 import com.shilapi.xcertplay.network.WirelessHotspotInfo
 import com.shilapi.xcertplay.network.WirelessHotspotBackend
+import com.shilapi.xcertplay.network.WifiScanPause
 import com.shilapi.xcertplay.network.WirelessHotspotManager
 import com.shilapi.xcertplay.network.WirelessInterfaceDiagnostics
 import com.shilapi.xcertplay.network.WirelessReceiveDiagnostics
@@ -259,6 +260,7 @@ class CarPlayController(
         activeSession?.sendRemoteControlMessage(streamId, message) ?: false
 
     @Volatile private var hotspot: WirelessHotspotManager? = null
+    @Volatile private var wifiScanPause: WifiScanPause? = null
     @Volatile private var bonjour: CarPlayBonjour? = null
     @Volatile private var wirelessDiagnostics: WirelessStartupDiagnostics? = null
     /** Stall-driven wireless restarts in the current attempt; see startWirelessStallWatchdog. */
@@ -1230,6 +1232,10 @@ class CarPlayController(
                 return
             }
             val startedHotspot = hotspot
+            if (config.wifiDirectScanPause && WifiScanPause.eligible(hotspotInfo.backend)) {
+                wifiScanPause?.close()
+                wifiScanPause = WifiScanPause(appContext, ::debugLog).also { it.pause() }
+            }
             wirelessConnectionProof.begin(generation) {
                 if (!isStaleWirelessRun(generation)) startedHotspot?.onCarPlayConfirmed()
             }
@@ -2427,6 +2433,9 @@ class CarPlayController(
     }
 
     private fun closeWirelessStack(service: CarPlayVpnService? = vpnService) {
+        val activeScanPause = wifiScanPause
+        wifiScanPause = null
+        if (activeScanPause != null) closeBestEffort("Wi-Fi scan pause") { activeScanPause.close() }
         val diagnostics = wirelessDiagnostics
         wirelessDiagnostics = null
         diagnostics?.close()

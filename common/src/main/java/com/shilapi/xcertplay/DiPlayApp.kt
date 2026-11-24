@@ -26,7 +26,9 @@ class DiPlayApp : Application() {
         // synchronized).
         if (!isLampProbeProcess()) {
             runCatching { AirPlayPersistence.applyDefaultsRevision(this) }
+            runCatching { com.shilapi.xcertplay.network.restoreWifiScanPauseIfNeeded(this) }
         }
+        CrashRecord.install(this)
         DiPlayStartupTrace.log(this, "Application.onCreate")
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->

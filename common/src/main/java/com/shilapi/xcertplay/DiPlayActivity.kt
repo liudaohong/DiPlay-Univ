@@ -784,6 +784,12 @@ class DiPlayActivity : ComponentActivity() {
         activeSectionGroups = GROUP_FREQUENT or GROUP_CONNECT
         section(content, getString(R.string.automatic_connection), R.drawable.ic_dp_automation) { card ->
             toggle(card, getString(R.string.connect_when_diplay_opens), getString(R.string.use_your_last_connection_type_and_selected_iphone), DiPlayPreferences.autoConnect(this)) { DiPlayPreferences.saveAutoConnect(this, it) }
+            toggle(
+                card,
+                getString(R.string.wifi_direct_scan_pause_title),
+                getString(R.string.wifi_direct_scan_pause_description),
+                AirPlayPersistence.loadWifiDirectScanPause(this),
+            ) { AirPlayPersistence.saveWifiDirectScanPause(this, it) }
             adbToggle(card, R.string.open_after_the_car_starts,
                 R.string.availability_depends_on_your_head_unit_s_startup_settings,
                 read = { AirPlayPersistence.loadAutoStartOnBoot(this) },
@@ -3561,6 +3567,9 @@ class DiPlayActivity : ComponentActivity() {
         appendLine()
         appendLine("--- Last received boot and app-launch result ---")
         appendLine(StartupDiagnosticSnapshot.report(appContext))
+        appendLine()
+        appendLine("--- Last recorded crash ---")
+        appendLine(CrashRecord.report(appContext))
         appendLine("Startup settings: openAfterBoot=${AirPlayPersistence.loadAutoStartOnBoot(appContext)} " +
             "connectWhenOpened=${DiPlayPreferences.autoConnect(appContext)}")
         appendLine()

@@ -66,6 +66,7 @@ class CarPlayRuntimeConfig(
     val wirelessBluetoothDeviceAddress: String? = null,
     val locationReportingEnabled: Boolean = false,
     val wifiP2pPreferredChannel: Int = WifiP2pChannels.AUTO,
+    val wifiDirectScanPause: Boolean = false,
     val existingWifiSsid: String = "",
     val existingWifiPassphrase: String = "",
 ) {

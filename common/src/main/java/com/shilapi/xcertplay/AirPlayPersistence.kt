@@ -80,6 +80,7 @@ object AirPlayPersistence {
     private const val KEY_WIRELESS_ENABLED = "wireless_enabled"
     private const val KEY_WIRELESS_HOTSPOT_MODE = "wireless_hotspot_mode"
     private const val KEY_WIFI_P2P_PREFERRED_CHANNEL = "wifi_p2p_preferred_channel"
+    private const val KEY_WIFI_DIRECT_SCAN_PAUSE = "wifi_direct_scan_pause"
     private const val KEY_MANUAL_HOTSPOT_SSID = "manual_hotspot_ssid"
     private const val KEY_MANUAL_HOTSPOT_PASSPHRASE = "manual_hotspot_passphrase"
     private const val KEY_MANUAL_HOTSPOT_BAND = "manual_hotspot_band"
@@ -267,6 +268,16 @@ object AirPlayPersistence {
     fun saveCarBluetoothAudio(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_CAR_BLUETOOTH_AUDIO, enabled)
+            .apply()
+    }
+
+    fun loadWifiDirectScanPause(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_WIFI_DIRECT_SCAN_PAUSE, false)
+
+    fun saveWifiDirectScanPause(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_WIFI_DIRECT_SCAN_PAUSE, enabled)
             .apply()
     }
 

@@ -30,6 +30,9 @@
 -keep class com.shilapi.xcertplay.hud.Byd13CatalogProbeMain {
     public static void main(java.lang.String[]);
 }
+-keep class com.shilapi.xcertplay.network.WifiScanPauseMain {
+    public static void main(java.lang.String[]);
+}
 
 # Readable crash traces from the field: keep line numbers and the original
 # source file name.

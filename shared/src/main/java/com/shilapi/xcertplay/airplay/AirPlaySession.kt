@@ -405,7 +405,7 @@ class AirPlaySession(
         com.shilapi.xcertplay.network.TcpLiveness.configure(socket) { debugLog(it) }
         val input = BufferedInputStream(socket.getInputStream())
         val output = BufferedOutputStream(socket.getOutputStream())
-        var accumulated = ByteArray(0)
+        val frameBuffer = ControlFrameBuffer()
         val buffer = ByteArray(READ_CHUNK_BYTES)
         var closeReason = "session closed"
         try {
@@ -418,6 +418,11 @@ class AirPlaySession(
                 var plaintext = buffer.copyOf(count)
                 val activeCipher = cipher
                 if (activeCipher != null) {
+                    if (encBuf.size + plaintext.size > MAX_ENCRYPTED_BUFFER_BYTES) {
+                        closeReason = "encrypted control buffer exceeded limit"
+                        Log.e(TAG, "airplay $closeReason size=${encBuf.size + plaintext.size}")
+                        break
+                    }
                     encBuf += plaintext
                     val decrypted = try {
                         activeCipher.decrypt(encBuf)
@@ -429,10 +434,9 @@ class AirPlaySession(
                     encBuf = decrypted.rest
                     plaintext = decrypted.data
                 }
-                accumulated += plaintext
-                val parsed = RtspMessage.parseMessages(accumulated)
-                accumulated = parsed.rest
-                for (request in parsed.messages) {
+                frameBuffer.append(plaintext)
+                val messages = frameBuffer.drain()
+                for (request in messages) {
                     val cseq = request.headers["cseq"] ?: "-"
                     val path = request.path.lowercase()
                     val showInDebugOverlay =
@@ -975,6 +979,7 @@ class AirPlaySession(
         const val STREAM_TYPE_DATA = 130
 
         const val READ_CHUNK_BYTES = 16 * 1024
+        const val MAX_ENCRYPTED_BUFFER_BYTES = 2 * 1024 * 1024
         const val EVENT_READY_POLL_MILLIS = 25L
         const val NANOS_PER_MILLISECOND = 1_000_000L
     }

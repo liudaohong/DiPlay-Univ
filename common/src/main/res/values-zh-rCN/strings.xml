@@ -783,4 +783,6 @@ iPhone 出现提示时允许“信任”和使用 CarPlay。</string>
     <string name="call_voice_filter_description">滤除通话音频 200Hz 以下低频嗡嗡声，使人声更清晰并降低麦克风回声反馈。</string>
     <string name="car_bluetooth_audio_title">纯投屏 + 原车蓝牙音频（实验性）</string>
     <string name="car_bluetooth_audio_description">仅向 iPhone 声明 CarPlay 画面，音频保持走车机原生蓝牙通道；开启时会自动关闭「自动开关蓝牙」。</string>
+    <string name="wifi_direct_scan_pause_title">Wi-Fi Direct 时暂停后台 Wi-Fi 扫描（需 ADB）</string>
+    <string name="wifi_direct_scan_pause_description">通过已授权的本地网络 ADB 暂停车机周期性 Wi-Fi 搜索，降低约 10 秒一次的周期性断音卡顿；未授权 ADB 时会自动跳过。</string>
 </resources>
