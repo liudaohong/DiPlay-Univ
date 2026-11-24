@@ -101,6 +101,7 @@ class DiPlayActivity : ComponentActivity() {
      * widgets writing the same preference) and the layout can balance the columns by row count.
      */
     private var settingsSectionSink: MutableList<View>? = null
+    private var settingsSearchQuery: String = ""
     /** The detached column sections are built into; only its children go to [settingsSectionSink]. */
     private var settingsStaging: LinearLayout? = null
     private var settingsLeft: LinearLayout? = null
@@ -535,6 +536,30 @@ class DiPlayActivity : ComponentActivity() {
         textScale = 1.22f
         host.addView(label(getString(R.string.your_drive_your_way), 20, TEXT, true))
         host.addView(label(getString(R.string.apply_reconnects_carplay_for_size_resolution_music_buffer), 11, MUTED).apply { setPadding(0, dp(6), 0, dp(10)) })
+        host.addView(
+            android.widget.EditText(this).apply {
+                hint = getString(R.string.settings_search_hint)
+                setText(settingsSearchQuery)
+                setTextColor(TEXT)
+                setHintTextColor(MUTED)
+                textSize = 15f
+                isSingleLine = true
+                background = rounded(SURFACE, BORDER, 12)
+                setPadding(dp(14), dp(8), dp(14), dp(8))
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        val next = s?.toString()?.trim().orEmpty()
+                        if (next != settingsSearchQuery) {
+                            settingsSearchQuery = next
+                            applyGroupFilter()
+                        }
+                    }
+                })
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) },
+        )
         // Rail plus two content columns. Sections are collected first and distributed later, so a
         // preference never has two widgets and the page uses the panel's width instead of leaving a
         // third of it blank.
@@ -654,6 +679,28 @@ class DiPlayActivity : ComponentActivity() {
                 exportDiagnostics()
             }.apply { isEnabled = !exportInProgress }
             card.addView(exportButton, matchButton(10, 60))
+            card.addView(button(getString(R.string.qr_report_button), false) {
+                com.shilapi.xcertplay.backup.SettingsBackupDialog.show(
+                    activity = this,
+                    appVersion = version(),
+                    reportProvider = { buildDiagnosticReport(applicationContext).toByteArray(Charsets.UTF_8) },
+                    reportMode = true,
+                )
+            }, matchButton(10, 60))
+            card.addView(button(getString(R.string.qr_backup_button), false) {
+                com.shilapi.xcertplay.backup.SettingsBackupDialog.show(
+                    activity = this,
+                    appVersion = version(),
+                    reportProvider = { buildDiagnosticReport(applicationContext).toByteArray(Charsets.UTF_8) },
+                    reportMode = false,
+                    onImported = { outcome ->
+                        if (!outcome.invalid && outcome.applied > 0) {
+                            toast(getString(R.string.qr_backup_imported, outcome.applied, outcome.skipped))
+                            render()
+                        }
+                    },
+                )
+            }, matchButton(10, 60))
             card.addView(button(getString(R.string.choose_save_location), false) { chooseReportDestination() }, matchButton(10, 60))
             // Off by default: with it off the log keeps only what a report needs (connection state,
             // navigation switches, track changes, audio buffers, each stream's first frame) instead
@@ -4185,7 +4232,12 @@ class DiPlayActivity : ComponentActivity() {
         val right = settingsRight ?: return
         left.removeAllViews()
         right.removeAllViews()
-        val visible = sink.filter { sectionGroupsOf(it) and settingsGroup != 0 }
+        val query = settingsSearchQuery.trim()
+        val visible = if (query.isNotEmpty()) {
+            sink.filter { sectionMatchesQuery(it, query) }
+        } else {
+            sink.filter { sectionGroupsOf(it) and settingsGroup != 0 }
+        }
         // Narrow panels (1024x600 dashes) keep one column: two 230dp columns cannot hold a label
         // and a 150dp number input side by side.
         val screenDp = (resources.displayMetrics.widthPixels / resources.displayMetrics.density).toInt()
@@ -4218,6 +4270,18 @@ class DiPlayActivity : ComponentActivity() {
             }
             lastColumn = column
         }
+    }
+
+    private fun sectionMatchesQuery(view: View, query: String): Boolean {
+        if (view is android.widget.TextView) {
+            if (view.text?.toString()?.contains(query, ignoreCase = true) == true) return true
+        }
+        if (view is android.view.ViewGroup) {
+            for (i in 0 until view.childCount) {
+                if (sectionMatchesQuery(view.getChildAt(i), query)) return true
+            }
+        }
+        return false
     }
 
     private fun sectionGroupsOf(view: View): Int =

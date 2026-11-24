@@ -764,4 +764,19 @@ CarPlay, right here on your car display.</string>
     <string name="issue_headlamp_dock_theme">15. \"Follow headlights\" cannot change the Dock theme; this is an iOS limitation. To make the Dock icons follow the headlight state too, open CarPlay Settings → Customize Icons and choose \"Dark\" and \"Automatic\".</string>
     <string name="mtk_low_latency_decoding">Low-latency decoding (MediaTek)</string>
     <string name="mtk_low_latency_decoding_description">Experimental. Request MediaTek low-latency and no-reorder decoder modes on the main screen; falls back automatically if rejected.</string>
+    <string name="settings_search_hint">Search settings…</string>
+    <string name="qr_backup_button">Backup / restore settings via phone QR</string>
+    <string name="qr_report_button">Download diagnostic report via phone QR</string>
+    <string name="qr_backup_title">Backup &amp; Restore Settings</string>
+    <string name="qr_report_title">Download Diagnostic Report</string>
+    <string name="qr_backup_hint">Connect your phone to the same Wi-Fi or car hotspot, then scan the QR code to export or import settings.</string>
+    <string name="qr_report_hint">Connect your phone to the same Wi-Fi or car hotspot, then scan the QR code to download the diagnostic report.</string>
+    <string name="qr_backup_url_label">URL: %1$s</string>
+    <string name="qr_backup_typed_label">Or open %1$s and enter code: %2$s</string>
+    <string name="qr_backup_alt_ips">Other addresses: %1$s</string>
+    <string name="qr_backup_close">Close</string>
+    <string name="qr_backup_start_failed">Could not start the backup page.</string>
+    <string name="qr_backup_no_network">No local IPv4 network address found. Enable the car hotspot or connect Wi-Fi first.</string>
+    <string name="qr_backup_invalid">Invalid settings file.</string>
+    <string name="qr_backup_imported">Imported %1$d settings (%2$d skipped).</string>
 </resources>

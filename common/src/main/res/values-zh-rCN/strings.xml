@@ -762,4 +762,19 @@ iPhone 出现提示时允许“信任”和使用 CarPlay。</string>
     <string name="issue_headlamp_dock_theme">15. 「跟随车灯状态」无法修改 Dock 的主题模式，这是 iOS 的限制。若想让 Dock 中的图标也跟随车灯状态切换，请在 CarPlay 设置 → 自定义图标中，分别选择「深色」和「自动」。</string>
     <string name="mtk_low_latency_decoding">联发科低延迟解码（实验性）</string>
     <string name="mtk_low_latency_decoding_description">为主屏请求 MediaTek 低延迟与无重排解码模式（适配 22 款 UNI-V 等联发科车机）；若解码器拒绝会自动回退标准模式。</string>
+    <string name="settings_search_hint">搜索设置项…</string>
+    <string name="qr_backup_button">手机扫码备份 / 恢复设置</string>
+    <string name="qr_report_button">手机扫码下载诊断报告</string>
+    <string name="qr_backup_title">手机扫码备份与恢复设置</string>
+    <string name="qr_report_title">手机扫码下载诊断报告</string>
+    <string name="qr_backup_hint">请将手机连入同一 Wi-Fi 或车机热点，微信/相机扫码即可在浏览器中导出或导入全部设置（含长安仪表卡片与主题配置）。</string>
+    <string name="qr_report_hint">请将手机连入同一 Wi-Fi 或车机热点，扫码即可直接下载车机完整诊断报告。</string>
+    <string name="qr_backup_url_label">扫码链接：%1$s</string>
+    <string name="qr_backup_typed_label">或手机浏览器访问 %1$s 并输入验证码：%2$s</string>
+    <string name="qr_backup_alt_ips">其他可用地址：%1$s</string>
+    <string name="qr_backup_close">关闭</string>
+    <string name="qr_backup_start_failed">无法启动本地备份页面。</string>
+    <string name="qr_backup_no_network">未检测到可用的局域网 IPv4 地址，请先开启车机热点或连接 Wi-Fi。</string>
+    <string name="qr_backup_invalid">设置文件格式无效。</string>
+    <string name="qr_backup_imported">已成功导入 %1$d 项设置（跳过 %2$d 项）。</string>
 </resources>
