@@ -52,6 +52,8 @@ jobs:
               --tests "com.shilapi.xcertplay.network.WifiScanPauseSessionTest" \
               --tests "com.shilapi.xcertplay.orchestration.WirelessConnectionProofTest" \
               --tests "com.shilapi.xcertplay.airplay.CarPlayMediaEngineSessionProofTest" \
+              --tests "com.shilapi.xcertplay.transport.VehicleSpeedNmeaTest" \
+              --tests "com.shilapi.xcertplay.transport.Iap2LocationReporterTest" \
             :common:testDebugUnitTest \
               --tests "com.shilapi.xcertplay.AsyncDiagnosticLogTest" \
               --tests "com.shilapi.xcertplay.BootReceiverSecurityTest" \
@@ -63,6 +65,8 @@ jobs:
               --tests "com.shilapi.xcertplay.HevcSupportTest" \
               --tests "com.shilapi.xcertplay.backup.SettingsBackupCodecTest" \
               --tests "com.shilapi.xcertplay.backup.SettingsBackupServerTest" \
+              --tests "com.shilapi.xcertplay.daynight.ChanganVehicleSpeedSourceTest" \
+              --tests "com.shilapi.xcertplay.LocationReportingSettingsTest" \
             --no-daemon --stacktrace
 
       - name: Build source-only Debug and Release (R8) APKs

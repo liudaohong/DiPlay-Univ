@@ -277,16 +277,15 @@ public final class CarLampSource {
         return 0;
     }
 
-    /** Canonical: 1=P,2=R,3=N,4=D,5..10=M1..M6. */
-    public int readGear() {
-        int raw = readGearRaw();
-        if (raw == 0) return 0;
+    /** Maps a raw gear code (1..6=M1..M6, 7=P, 8=R, 9=N, 10=D) to canonical form (0=unknown, 1=P, 2=R, 3=N, 4=D, 5..10=M1..M6). */
+    public static int canonicalGear(int raw) {
+        if (raw <= 0) return 0;
         if (raw >= 7) return raw - 6;
         return raw + 4;
     }
 
-    public String readGearText() {
-        int raw = readGearRaw();
+    /** Formats a raw gear code as P/R/N/D/M1..M6, or empty string when unknown. */
+    public static String gearText(int raw) {
         switch (raw) {
             case 1: return "M1";
             case 2: return "M2";
@@ -300,6 +299,15 @@ public final class CarLampSource {
             case 10: return "D";
             default: return "";
         }
+    }
+
+    /** Canonical: 1=P,2=R,3=N,4=D,5..10=M1..M6. */
+    public int readGear() {
+        return canonicalGear(readGearRaw());
+    }
+
+    public String readGearText() {
+        return gearText(readGearRaw());
     }
 
     public boolean turnLeftRequested() {

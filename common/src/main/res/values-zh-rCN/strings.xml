@@ -791,4 +791,6 @@ iPhone 出现提示时允许“信任”和使用 CarPlay。</string>
     <string name="lock_paired_devices_title">锁定已配对 iPhone（拒绝陌生设备配对）</string>
     <string name="lock_paired_devices_description">完成首次配对后开启本项，将拒绝局域网内未知设备的 AirPlay 新配对请求，仅允许已配对 iPhone 验证连接。</string>
     <string name="existing_wifi_security_hint">安全提示：连接公共或共享路由器时，同局域网设备可能访问投屏端口。日常用车建议优先使用「车机热点」或「Wi-Fi Direct」，或在设置中开启「锁定已配对 iPhone」。</string>
+    <string name="changan_tunnel_speed">隧道惯导（车速与挡位）</string>
+    <string name="changan_tunnel_speed_description">免 ADB 直接读取长安车机实时车速与挡位，通过 $PASCD 发给 iPhone，让高德/Apple 地图在隧道和地库失星时继续顺滑推算位置（需先开启「向 iPhone 报告位置」）。更改此设置会重连当前 CarPlay 会话。</string>
 </resources>

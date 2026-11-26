@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.daynight
 
 import android.app.Service
 import android.content.Intent
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -70,6 +71,37 @@ class LampReaderService : Service() {
         override fun isTurnLeftBlink(): Boolean = source.turnLeftBlink()
 
         override fun isTurnRightBlink(): Boolean = source.turnRightBlink()
+
+        override fun getVehicleSnapshot(motionOnly: Boolean): Bundle {
+            val gearRaw = source.readGearRaw()
+            return Bundle().apply {
+                putFloat(CarDataMonitor.SnapshotKeys.SPEED_RAW, source.readSpeed())
+                putInt(CarDataMonitor.SnapshotKeys.GEAR_RAW, gearRaw)
+                putInt(CarDataMonitor.SnapshotKeys.GEAR, CarLampSource.canonicalGear(gearRaw))
+                putString(CarDataMonitor.SnapshotKeys.GEAR_TEXT, CarLampSource.gearText(gearRaw))
+                putBoolean(CarDataMonitor.SnapshotKeys.CONNECTED, source.isConnected)
+                putString(CarDataMonitor.SnapshotKeys.ERROR, source.lastError())
+                if (motionOnly) {
+                    putFloat(CarDataMonitor.SnapshotKeys.RPM, Float.NaN)
+                    putFloat(CarDataMonitor.SnapshotKeys.ODOMETER_KM, Float.NaN)
+                    putFloat(CarDataMonitor.SnapshotKeys.RANGE_KM, Float.NaN)
+                    putBoolean(CarDataMonitor.SnapshotKeys.TURN_LEFT, false)
+                    putBoolean(CarDataMonitor.SnapshotKeys.TURN_RIGHT, false)
+                    putBoolean(CarDataMonitor.SnapshotKeys.HAZARD, false)
+                    putBoolean(CarDataMonitor.SnapshotKeys.TURN_LEFT_BLINK, false)
+                    putBoolean(CarDataMonitor.SnapshotKeys.TURN_RIGHT_BLINK, false)
+                } else {
+                    putFloat(CarDataMonitor.SnapshotKeys.RPM, source.readRpm())
+                    putFloat(CarDataMonitor.SnapshotKeys.ODOMETER_KM, source.readOdometer())
+                    putFloat(CarDataMonitor.SnapshotKeys.RANGE_KM, source.readRange())
+                    putBoolean(CarDataMonitor.SnapshotKeys.TURN_LEFT, source.turnLeftRequested())
+                    putBoolean(CarDataMonitor.SnapshotKeys.TURN_RIGHT, source.turnRightRequested())
+                    putBoolean(CarDataMonitor.SnapshotKeys.HAZARD, source.hazardRequested())
+                    putBoolean(CarDataMonitor.SnapshotKeys.TURN_LEFT_BLINK, source.turnLeftBlink())
+                    putBoolean(CarDataMonitor.SnapshotKeys.TURN_RIGHT_BLINK, source.turnRightBlink())
+                }
+            }
+        }
     }
 
     override fun onCreate() {

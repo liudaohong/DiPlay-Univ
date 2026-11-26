@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Switch
+import android.widget.TextView
 import com.shilapi.xcertplay.host.R
 import org.junit.After
 import org.junit.Before
@@ -32,6 +33,7 @@ class LocationReportingSettingsTest {
     }
 
     @After fun tearDown() {
+        ReflectionHelpers.setField(DiPlayBootstrap, "ready", false)
         CarPlayBackgroundSession.clear()
         controller?.pause()?.stop()?.destroy()
     }
@@ -41,6 +43,52 @@ class LocationReportingSettingsTest {
 
         assertFalse(locationSwitch().isChecked)
         assertFalse(AirPlayPersistence.loadLocationReportingEnabled(context))
+        assertFalse(changanTunnelSpeedSwitch().isChecked)
+        assertFalse(changanTunnelSpeedSwitch().isEnabled)
+        assertFalse(AirPlayPersistence.loadChanganTunnelSpeedEnabled(context))
+    }
+
+    @Test fun changanTunnelSpeedSwitchRequiresLocationAndPersists() {
+        shadowOf(context).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        openSettings()
+
+        assertFalse(changanTunnelSpeedSwitch().isEnabled)
+
+        locationSwitch().performClick()
+        assertTrue(changanTunnelSpeedSwitch().isEnabled)
+        assertFalse(changanTunnelSpeedSwitch().isChecked)
+
+        changanTunnelSpeedSwitch().performClick()
+        assertTrue(changanTunnelSpeedSwitch().isChecked)
+        assertTrue(AirPlayPersistence.loadChanganTunnelSpeedEnabled(context))
+
+        requireNotNull(controller).recreate()
+        selectConnectGroup()
+        assertTrue(changanTunnelSpeedSwitch().isEnabled)
+        assertTrue(changanTunnelSpeedSwitch().isChecked)
+
+        changanTunnelSpeedSwitch().performClick()
+        assertFalse(AirPlayPersistence.loadChanganTunnelSpeedEnabled(context))
+    }
+
+    @Test fun changanTunnelSpeedToggleReconnectsActiveSession() {
+        shadowOf(context).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        AirPlayPersistence.saveWirelessEnabled(context, false)
+        AirPlayPersistence.saveLocationReportingEnabled(context, true)
+        openSettings()
+        ReflectionHelpers.setField(DiPlayBootstrap, "ready", true)
+        ReflectionHelpers.setField(activity, "setupError", null)
+
+        val stop: ((() -> Unit) -> Unit) = { completion ->
+            CarPlayBackgroundSession.clear()
+            completion()
+        }
+        ReflectionHelpers.setField(CarPlayBackgroundSession, "stopAction", stop)
+
+        changanTunnelSpeedSwitch().performClick()
+
+        assertTrue(AirPlayPersistence.loadChanganTunnelSpeedEnabled(context))
+        assertEquals(CarPlayHostActivity::class.java.name, shadowOf(activity).nextStartedActivity.component?.className)
     }
 
     @Test fun grantedSettingSurvivesRecreationAndCanBeDisabled() {
@@ -50,6 +98,7 @@ class LocationReportingSettingsTest {
         locationSwitch().performClick()
         assertTrue(AirPlayPersistence.loadLocationReportingEnabled(context))
         requireNotNull(controller).recreate()
+        selectConnectGroup()
         assertTrue(locationSwitch().isChecked)
 
         locationSwitch().performClick()
@@ -93,6 +142,7 @@ class LocationReportingSettingsTest {
         openSettings()
         // Authentication assets are deliberately absent from unit tests. Model an already
         // provisioned, connected host without constructing transports or native decoders.
+        ReflectionHelpers.setField(DiPlayBootstrap, "ready", true)
         ReflectionHelpers.setField(activity, "setupError", null)
         val stoppedWithSettings = mutableListOf<Boolean>()
 
@@ -115,11 +165,23 @@ class LocationReportingSettingsTest {
     private fun openSettings() {
         controller = Robolectric.buildActivity(DiPlayActivity::class.java,
             Intent(context, DiPlayActivity::class.java).putExtra("page", "settings")).setup()
+        selectConnectGroup()
+    }
+
+    private fun selectConnectGroup() {
+        val label = descendants(activity.window.decorView)
+            .filterIsInstance<TextView>()
+            .single { it.text == activity.getString(R.string.settings_group_connect) }
+        (label.parent as View).performClick()
     }
 
     private fun locationSwitch(): Switch = descendants(activity.window.decorView)
         .filterIsInstance<Switch>()
         .single { it.contentDescription == activity.getString(R.string.report_location_to_iphone) }
+
+    private fun changanTunnelSpeedSwitch(): Switch = descendants(activity.window.decorView)
+        .filterIsInstance<Switch>()
+        .single { it.contentDescription == activity.getString(R.string.changan_tunnel_speed) }
 
     private fun descendants(view: View): Sequence<View> = sequence {
         yield(view)

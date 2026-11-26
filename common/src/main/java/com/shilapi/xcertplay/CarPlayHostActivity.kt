@@ -162,7 +162,10 @@ class CarPlayHostActivity : ComponentActivity() {
             locationInformationEnabled = locationReportingEnabled,
             vehicleStatusEnabled = com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphoneActive(this),
             chargingConnectors = com.shilapi.xcertplay.hud.BydOutputSettings.chargingConnectors(this),
-            vehicleSpeedEnabled = locationReportingEnabled && com.shilapi.xcertplay.hud.BydOutputSettings.wheelSpeedToIphoneActive(this),
+            vehicleSpeedEnabled = locationReportingEnabled && (
+                com.shilapi.xcertplay.hud.BydOutputSettings.wheelSpeedToIphoneActive(this) ||
+                    AirPlayPersistence.loadChanganTunnelSpeedEnabled(this)
+                ),
         ),
         label = "DiPlay",
         hostName = "diplay-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
@@ -6236,15 +6239,29 @@ class CarPlayHostActivity : ComponentActivity() {
         val controllerGeneration = restartGeneration
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)
+        val bydWheelSpeed = com.shilapi.xcertplay.hud.BydOutputSettings.wheelSpeedToIphoneActive(this)
+        val changanTunnelSpeed = AirPlayPersistence.loadChanganTunnelSpeedEnabled(this)
         val locationProvider: Iap2LocationProvider? =
             when {
                 !config.locationReportingEnabled -> null
-                config.identification.vehicleSpeedEnabled -> VehicleSpeedLocationProvider(
+                bydWheelSpeed -> VehicleSpeedLocationProvider(
                     AndroidCarPlayLocationProvider(this),
                     com.shilapi.xcertplay.hud.BydNavigationOutputs.wheelSpeed(applicationContext),
                 )
+                changanTunnelSpeed -> VehicleSpeedLocationProvider(
+                    AndroidCarPlayLocationProvider(
+                        this,
+                        preferredLocationAgeMillis = CHANGAN_TUNNEL_GPS_MAX_AGE_MILLIS,
+                    ),
+                    com.shilapi.xcertplay.daynight.ChanganVehicleSpeedSource(applicationContext),
+                )
                 else -> AndroidCarPlayLocationProvider(this)
             }
+        val speedSourceLabel = when {
+            !config.identification.vehicleSpeedEnabled -> ""
+            bydWheelSpeed -> "+wheel-speed(byd)"
+            else -> "+wheel-speed(changan)"
+        }
         appendLog(
             "Starting CarPlay controller at ${size.width}x${size.height} -> " +
                 "${airPlayConfig.main.widthPixels}x${airPlayConfig.main.heightPixels} " +
@@ -6255,7 +6272,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 "decoder=${if (airPlayConfig.hevc && hevcSoftwareDecoderEnabled) "software" else "hardware"} " +
                 "microphone=${airPlayConfig.microphone} " +
                 "location=${if (config.locationReportingEnabled) "enabled" else "disabled"}" +
-                "${if (config.identification.vehicleSpeedEnabled) "+wheel-speed" else ""} " +
+                "$speedSourceLabel " +
                 "mfi=${mfiTargetLabel(config.mfiTarget)}",
         )
         Log.i(
@@ -9265,6 +9282,7 @@ class CarPlayHostActivity : ComponentActivity() {
         /** A UI frame over one 60 Hz vsync is logged as jank. */
         private const val JANK_FRAME_MS = 20L
         const val LOG_RETENTION_MILLIS = 5 * 60_000L
+        const val CHANGAN_TUNNEL_GPS_MAX_AGE_MILLIS = 5_000L
         const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L
         const val CONFIGURATION_POLL_INTERVAL_MILLIS = 2_000L
         const val RECONNECT_DELAY_MILLIS = 2_000L

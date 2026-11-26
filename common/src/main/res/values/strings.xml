@@ -793,4 +793,6 @@ CarPlay, right here on your car display.</string>
     <string name="lock_paired_devices_title">Lock paired iPhones (reject new pairings)</string>
     <string name="lock_paired_devices_description">Once at least one iPhone is paired, refuse new AirPlay pair-setup requests from unknown devices on shared Wi-Fi networks.</string>
     <string name="existing_wifi_security_hint">Security note: On shared or public Wi-Fi routers, other devices on the same LAN can reach the CarPlay port. Prefer Wi-Fi Direct or Car Hotspot for daily driving, or enable “Lock paired iPhones” in Settings.</string>
+    <string name="changan_tunnel_speed">Tunnel dead reckoning (speed &amp; gear)</string>
+    <string name="changan_tunnel_speed_description">Sends real-time Changan vehicle speed and gear ($PASCD) with Report location to iPhone so Apple Maps and other navigation apps keep moving smoothly in tunnels and underground garages without network ADB. Changing this setting reconnects an active CarPlay session.</string>
 </resources>

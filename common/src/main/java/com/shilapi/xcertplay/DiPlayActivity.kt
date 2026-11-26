@@ -1009,9 +1009,20 @@ class DiPlayActivity : ComponentActivity() {
         }
         activeSectionGroups = GROUP_CONNECT
         section(content, getString(R.string.location), R.drawable.ic_dp_navigation) { card ->
+            val locationEnabled = AirPlayPersistence.loadLocationReportingEnabled(this)
             toggle(card, getString(R.string.report_location_to_iphone),
                 getString(R.string.sends_precise_android_location_as_carplay_gps_data_when_th),
-                AirPlayPersistence.loadLocationReportingEnabled(this), save = ::onLocationReportingChanged)
+                locationEnabled, save = ::onLocationReportingChanged)
+            toggle(card, getString(R.string.changan_tunnel_speed),
+                getString(R.string.changan_tunnel_speed_description),
+                AirPlayPersistence.loadChanganTunnelSpeedEnabled(this),
+                enabled = locationEnabled) { enabled ->
+                if (AirPlayPersistence.loadChanganTunnelSpeedEnabled(this) != enabled) {
+                    AirPlayPersistence.saveChanganTunnelSpeedEnabled(this, enabled)
+                    if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
+                    else toast(getString(R.string.saved_for_your_next_connection))
+                }
+            }
             card.addView(label(getString(R.string.location_reporting_reconnects), 14, MUTED))
             card.addView(button(getString(if (bydVehicleAdvancedExpanded)
                 R.string.hide_advanced_vehicle_data else R.string.advanced_vehicle_data), false) {

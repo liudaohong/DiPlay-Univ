@@ -7,10 +7,10 @@ import android.content.ServiceConnection
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
-import android.os.Looper
 import android.os.RemoteException
 import android.os.SystemClock
 import android.util.Log
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * Fast vehicle-data poller (speed/RPM/odometer/range) over the same vendor-whitelisted
@@ -19,12 +19,29 @@ import android.util.Log
  * This deliberately does not create a second Car connection: the service runs in
  * `com.wt.n2048`, where android.car's property manager is readable, and these properties
  * are floats. The lamp poller stays at 1s; speed/RPM need 100-200ms, so this is a separate
- * 150ms tick bound only while the PC bench MCU view is attached.
+ * 100ms batched AIDL snapshot tick shared across dashboard themes and `$PASCD` location reporting.
  */
 object CarDataMonitor {
     private const val TAG = "CarDataMonitor"
     private const val POLL_MS = 100L
     private const val REBIND_MS = 5000L
+
+    object SnapshotKeys {
+        const val SPEED_RAW = "speed_raw"
+        const val RPM = "rpm"
+        const val ODOMETER_KM = "odometer_km"
+        const val RANGE_KM = "range_km"
+        const val GEAR = "gear"
+        const val GEAR_RAW = "gear_raw"
+        const val GEAR_TEXT = "gear_text"
+        const val TURN_LEFT = "turn_left"
+        const val TURN_RIGHT = "turn_right"
+        const val HAZARD = "hazard"
+        const val TURN_LEFT_BLINK = "turn_left_blink"
+        const val TURN_RIGHT_BLINK = "turn_right_blink"
+        const val CONNECTED = "connected"
+        const val ERROR = "error"
+    }
 
     /** The vendor PERF_VEHICLE_SPEED on this UNI-V already reports km/h. */
     const val SPEED_UNIT_FACTOR = 1f
@@ -54,11 +71,14 @@ object CarDataMonitor {
      * Binder calls here can block for many seconds (field 13:35: an 11.9 s UI STALL inside
      * CarDataMonitor.getGearRaw). This poller must never run on the main thread.
      */
+    private val lifecycleLock = Any()
+    private val sampleListeners = CopyOnWriteArraySet<(Long, State) -> Unit>()
     private var worker: HandlerThread? = null
     private var handler: Handler? = null
     @Volatile private var appContext: Context? = null
     @Volatile private var running = false
-    private var clients = 0
+    private var fullClients = 0
+    private var motionClients = 0
     @Volatile private var reader: ILampReader? = null
     @Volatile private var binding = false
     @Volatile private var bindRequested = false
@@ -71,69 +91,119 @@ object CarDataMonitor {
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            if (!running) {
-                runCatching { appContext?.unbindService(this) }
-                return
+            synchronized(lifecycleLock) {
+                if (!running) {
+                    runCatching { appContext?.unbindService(this) }
+                    return
+                }
+                reader = service?.let { ILampReader.Stub.asInterface(it) }
+                binding = false
             }
-            reader = service?.let { ILampReader.Stub.asInterface(it) }
-            binding = false
             Log.i(TAG, "car data probe connected process=com.wt.n2048")
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            reader = null
-            binding = false
-            bindRequested = false
-            if (running) Log.i(TAG, "car data probe disconnected")
+            val stillRunning = synchronized(lifecycleLock) {
+                reader = null
+                binding = false
+                bindRequested = false
+                running
+            }
+            if (stillRunning) Log.i(TAG, "car data probe disconnected")
         }
     }
 
     private val tick = object : Runnable {
         override fun run() {
-            if (!running) return
+            val active = synchronized(lifecycleLock) { running }
+            if (!active) return
             pollOnce()
-            if (running) handler?.postDelayed(this, POLL_MS)
+            synchronized(lifecycleLock) {
+                if (running) handler?.postDelayed(this, POLL_MS)
+            }
         }
     }
 
-    /** Call from the bench MCU view's onAttachedToWindow. */
+    /** Registers a sample listener invoked on the poller thread with (elapsedMs, state). */
+    fun addSampleListener(listener: (Long, State) -> Unit) {
+        sampleListeners.add(listener)
+    }
+
+    /** Unregisters a previously added sample listener. */
+    fun removeSampleListener(listener: (Long, State) -> Unit) {
+        sampleListeners.remove(listener)
+    }
+
+    /** Call from dashboard theme views that need full vehicle telemetry (speed, RPM, gear, lamps). */
     fun start(context: Context) {
-        clients++
-        if (running) return
-        val app = context.applicationContext
-        appContext = app
-        running = true
-        snapshot = State(error = "waiting for probe")
-        Log.i(TAG, "car data monitor start (poll=${POLL_MS}ms)")
-        val thread = HandlerThread("car-data-monitor").apply { start() }
-        worker = thread
-        val nextHandler = Handler(thread.looper)
-        handler = nextHandler
-        bindProbe(app, force = true)
-        nextHandler.post(tick)
+        startClient(context, motionOnly = false)
     }
 
-    /** Call from the bench MCU view's onDetachedFromWindow. */
+    /** Call when releasing a full telemetry client started by [start]. */
     fun stop() {
-        if (clients > 0) clients--
-        if (clients > 0 || !running) return
-        running = false
-        handler?.removeCallbacks(tick)
-        handler = null
-        worker?.quitSafely()
-        worker = null
-        val ctx = appContext
-        if (ctx != null && bindRequested) {
-            runCatching { ctx.unbindService(connection) }
-        }
-        reader = null
-        binding = false
-        bindRequested = false
-        snapshot = State()
-        Log.i(TAG, "car data monitor stop")
+        stopClient(motionOnly = false)
     }
 
-    private fun bindProbe(ctx: Context, force: Boolean) {
+    /** Call from iAP2 tunnel dead reckoning when only speed and gear are needed. */
+    fun startMotionOnly(context: Context) {
+        startClient(context, motionOnly = true)
+    }
+
+    /** Call when releasing a motion-only client started by [startMotionOnly]. */
+    fun stopMotionOnly() {
+        stopClient(motionOnly = true)
+    }
+
+    private fun startClient(context: Context, motionOnly: Boolean) {
+        val startedNow = synchronized(lifecycleLock) {
+            if (motionOnly) motionClients++ else fullClients++
+            if (running) return
+            val app = context.applicationContext
+            appContext = app
+            running = true
+            snapshot = State(error = "waiting for probe")
+            val thread = HandlerThread("car-data-monitor").apply { start() }
+            worker = thread
+            val nextHandler = Handler(thread.looper)
+            handler = nextHandler
+            bindProbeLocked(app, force = true)
+            nextHandler.post(tick)
+            true
+        }
+        if (startedNow) {
+            Log.i(TAG, "car data monitor start (poll=${POLL_MS}ms motionOnly=$motionOnly)")
+        }
+    }
+
+    private fun stopClient(motionOnly: Boolean) {
+        val stoppedNow = synchronized(lifecycleLock) {
+            if (motionOnly) {
+                if (motionClients > 0) motionClients--
+            } else {
+                if (fullClients > 0) fullClients--
+            }
+            if (fullClients + motionClients > 0 || !running) return
+            running = false
+            handler?.removeCallbacks(tick)
+            handler = null
+            worker?.quitSafely()
+            worker = null
+            val ctx = appContext
+            if (ctx != null && bindRequested) {
+                runCatching { ctx.unbindService(connection) }
+            }
+            reader = null
+            binding = false
+            bindRequested = false
+            snapshot = State()
+            true
+        }
+        if (stoppedNow) {
+            Log.i(TAG, "car data monitor stop")
+        }
+    }
+
+    private fun bindProbeLocked(ctx: Context, force: Boolean) {
         if (reader != null || binding) return
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastBindAt < REBIND_MS) return
@@ -157,40 +227,58 @@ object CarDataMonitor {
     }
 
     private fun pollOnce() {
-        val ctx = appContext ?: return
-        val r = reader
+        val (ctx, r, motionOnly) = synchronized(lifecycleLock) {
+            if (!running) return
+            Triple(appContext, reader, fullClients == 0 && motionClients > 0)
+        }
+        if (ctx == null) return
         if (r == null) {
-            bindProbe(ctx, force = false)
+            synchronized(lifecycleLock) {
+                if (running) bindProbeLocked(ctx, force = false)
+            }
             snapshot = State(error = "probe not bound")
             return
         }
-        val next = try {
-            State(
-                speedRaw = r.getSpeed(),
-                rpm = r.getRpm(),
-                odometerKm = r.getOdometer(),
-                rangeKm = r.getRange(),
-                gear = r.gear,
-                gearRaw = r.gearRaw,
-                gearText = r.gearText ?: "",
-                turnLeft = r.isTurnLeftRequested,
-                turnRight = r.isTurnRightRequested,
-                hazard = r.isHazardRequested,
-                turnLeftBlink = r.isTurnLeftBlink,
-                turnRightBlink = r.isTurnRightBlink,
-                connected = r.isConnected,
-                error = r.lastError ?: "",
-            )
+        val beforeMs = SystemClock.elapsedRealtime()
+        val bundle = try {
+            r.getVehicleSnapshot(motionOnly)
         } catch (e: RemoteException) {
-            reader = null
-            binding = false
-            bindRequested = false
+            synchronized(lifecycleLock) {
+                reader = null
+                binding = false
+                bindRequested = false
+            }
             snapshot = State(error = "remote read failed: ${e.javaClass.simpleName}")
             return
         }
+        val afterMs = SystemClock.elapsedRealtime()
+        if (bundle == null) {
+            snapshot = State(error = "empty vehicle snapshot")
+            return
+        }
+        val sampleElapsedMs = beforeMs + (afterMs - beforeMs) / 2L
+        val next = State(
+            speedRaw = bundle.getFloat(SnapshotKeys.SPEED_RAW, Float.NaN),
+            rpm = bundle.getFloat(SnapshotKeys.RPM, Float.NaN),
+            odometerKm = bundle.getFloat(SnapshotKeys.ODOMETER_KM, Float.NaN),
+            rangeKm = bundle.getFloat(SnapshotKeys.RANGE_KM, Float.NaN),
+            gear = bundle.getInt(SnapshotKeys.GEAR, 0),
+            gearRaw = bundle.getInt(SnapshotKeys.GEAR_RAW, 0),
+            gearText = bundle.getString(SnapshotKeys.GEAR_TEXT, "") ?: "",
+            turnLeft = bundle.getBoolean(SnapshotKeys.TURN_LEFT, false),
+            turnRight = bundle.getBoolean(SnapshotKeys.TURN_RIGHT, false),
+            hazard = bundle.getBoolean(SnapshotKeys.HAZARD, false),
+            turnLeftBlink = bundle.getBoolean(SnapshotKeys.TURN_LEFT_BLINK, false),
+            turnRightBlink = bundle.getBoolean(SnapshotKeys.TURN_RIGHT_BLINK, false),
+            connected = bundle.getBoolean(SnapshotKeys.CONNECTED, false),
+            error = bundle.getString(SnapshotKeys.ERROR, "") ?: "",
+        )
         snapshot = next
+        for (listener in sampleListeners) {
+            runCatching { listener(sampleElapsedMs, next) }
+        }
 
-        val now = SystemClock.elapsedRealtime()
+        val now = afterMs
         if (now - lastLogAt >= 5000L &&
             (!next.speedRaw.isNaN() || !next.rpm.isNaN() || !next.odometerKm.isNaN())
         ) {

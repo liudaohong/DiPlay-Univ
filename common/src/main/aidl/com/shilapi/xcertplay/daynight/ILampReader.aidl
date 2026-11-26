@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.daynight;
 
+import android.os.Bundle;
+
 /**
  * Runs in the vendor-whitelisted process "com.wt.n2048" (see LampReaderService), where the car's
  * private property 0x11400E10 is readable. The main process binds to it; car_mode is returned for
@@ -54,4 +56,7 @@ interface ILampReader {
     boolean isHazardRequested();
     boolean isTurnLeftBlink();
     boolean isTurnRightBlink();
+
+    /** Batch snapshot of vehicle properties; when motionOnly is true, skips RPM/odo/range/turn signals. */
+    Bundle getVehicleSnapshot(boolean motionOnly);
 }
