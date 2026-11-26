@@ -266,3 +266,19 @@
 - [x] **平滑迁移与实车无感验证**：
   - 模拟旧版明文 `xcertplay_airplay.xml` 与 `adbkey.private` 升级后，已配对的 iPhone 无需重新配对即可直接无线自动重连，落盘文件不再包含明文私钥与热点密码；
   - 使用私有 `.jks` 签名产出最终装车 Release APK，通过 `apksigner verify --print-certs` 校验为自有证书（非 Android Debug 证书）。
+
+---
+
+## Phase 6：上游高价值稳定性增量同步（2026-11-25 追加）
+
+### 目标
+在不引入未实车验证的侵入性大改前提下，精准同步上游 `2026-11-23 ~ 11-24` 对 Android 9 / MTK 与排障最有益的 4 项修复，严守长安氛围灯律动、蓝牙联动、音频时钟与三指飞屏逻辑。
+
+### 具体接入清单
+
+| 编号 | 上游 PR | 核心内容 | 本地改动点 | 长安适配说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| 6.1 | **#1291** | **纯显示 + 原车蓝牙音频模式下发布只读 `MediaSession`** | `CarPlayMediaKeys.kt`、新增 `CarPlayDisplayOnlySessionTest.kt` | 仅展示标题/封面/进度且 `actions = 0`、不抢占音频焦点；媒体控制键不转发给 iPhone，保留长安 `mediaKeysViaCarBluetooth` 与氛围灯 `playbackListener` 逻辑。 |
+| 6.2 | **#1371** | **保留断开后延迟到达的清理诊断日志** | `SessionLogFile.kt`、`AsyncDiagnosticLog.kt`、`CarPlayHostActivity.kt`、`CarPlayController.kt`、`AsyncDiagnosticLogTest.kt` | `close()` 后仍允许写入最多 200 行 `CONNECTION_DIAGNOSTIC`（且仅追加不轮转/截断），确保异步释放 `WifiScanPause` 等日志不丢失。 |
+| 6.3 | **#1286 + #1374** | **后台无线会话收到音/视频帧时免于 45s 误杀重连** | `ScreenStream.kt`、`AirPlaySession.kt`、`CarPlayMediaEngine.kt`、`AndroidMediaSink.kt`、`WirelessConnectionProof.kt`、`CarPlayController.kt`、相关单测 | 隐藏 CarPlay 界面且无黑屏历史时，已解密主音频（100/102）或主屏视频帧（110）可证明会话有效，保留现有 `CarPlayStatus.WirelessActive` 与长安双栈/热点逻辑。 |
+| 6.4 | **#1376** | **音乐 `AudioTrack` 卡死检测与单次自动重建** | 新增 `MediaTrackStall.kt`、`AndroidMediaSink.kt`、新增 `MediaTrackStallTest.kt` / `MediaTrackRebuildTest.kt` | 针对 MTK + Android 9 播放头卡死或写入永久阻塞，3s 连续证据后重建 `AudioTrack` 并复用原焦点请求；通过 `onMediaTrackSession` 将新 `audioSessionId` 同步给长安 `IncallMusicRhythm`。 |

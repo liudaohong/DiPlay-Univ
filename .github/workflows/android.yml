@@ -43,12 +43,19 @@ jobs:
               --tests "com.shilapi.xcertplay.airplay.AirPlayTouchSlotsTest" \
               --tests "com.shilapi.xcertplay.airplay.DisplayOnlyAirPlayInfoTest" \
               --tests "com.shilapi.xcertplay.media.LostMusicFillTest" \
+              --tests "com.shilapi.xcertplay.media.MediaTrackStallTest" \
+              --tests "com.shilapi.xcertplay.media.MediaTrackRebuildTest" \
+              --tests "com.shilapi.xcertplay.media.AndroidMediaSinkVideoOutputTest" \
               --tests "com.shilapi.xcertplay.media.MtkDecoderTuningTest" \
               --tests "com.shilapi.xcertplay.media.VideoBacklogRecoveryTest" \
               --tests "com.shilapi.xcertplay.media.VideoDecodeQueueTest" \
               --tests "com.shilapi.xcertplay.network.WifiScanPauseSessionTest" \
+              --tests "com.shilapi.xcertplay.orchestration.WirelessConnectionProofTest" \
+              --tests "com.shilapi.xcertplay.airplay.CarPlayMediaEngineSessionProofTest" \
             :common:testDebugUnitTest \
+              --tests "com.shilapi.xcertplay.AsyncDiagnosticLogTest" \
               --tests "com.shilapi.xcertplay.BootReceiverSecurityTest" \
+              --tests "com.shilapi.xcertplay.CarPlayDisplayOnlySessionTest" \
               --tests "com.shilapi.xcertplay.CrashRecordTest" \
               --tests "com.shilapi.xcertplay.CustomThemeBoundsTest" \
               --tests "com.shilapi.xcertplay.PortholeThemeTest" \

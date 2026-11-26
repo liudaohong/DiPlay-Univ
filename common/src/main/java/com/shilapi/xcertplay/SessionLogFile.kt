@@ -20,6 +20,8 @@ internal class SessionLogFile(val file: File) : Closeable {
     private val queue = LinkedBlockingQueue<String>(MAX_QUEUED_LINES)
     private val dropped = AtomicLong()
     private val written = AtomicLong()
+    private val fileLock = Any()
+    private var lateLines = 0
 
     @Volatile
     private var closed = false
@@ -32,9 +34,11 @@ internal class SessionLogFile(val file: File) : Closeable {
     fun reset(header: String) = synchronized(this) {
         if (closed) return@synchronized
         queue.clear()
-        file.parentFile?.mkdirs()
-        rotate()
-        file.writeText("")
+        synchronized(fileLock) {
+            file.parentFile?.mkdirs()
+            rotate()
+            file.writeText("")
+        }
         enqueue(header)
     }
 
@@ -47,6 +51,36 @@ internal class SessionLogFile(val file: File) : Closeable {
     fun append(line: String) {
         if (!SessionLogPolicy.shouldWrite(line)) return
         enqueue(line)
+    }
+
+    /** Synchronous write for callers that are already off the hot path. */
+    fun appendNow(line: String) {
+        synchronized(this) {
+            if (closed) return
+        }
+        if (!SessionLogPolicy.shouldWrite(line)) return
+        val safe = DiagnosticRedactor.redact(line) ?: return
+        writeBatch(listOf(safe))
+    }
+
+    /**
+     * Like [appendNow], but also after [close]: teardown evidence that arrives once the CarPlay screen is gone
+     * (a scan pause released, a link handed back after a delay) still lands in this file, so the next report shows it.
+     */
+    fun appendAfterClose(line: String) = synchronized(this) {
+        if (!closed) {
+            if (!SessionLogPolicy.shouldWrite(line)) return@synchronized
+            val safe = DiagnosticRedactor.redact(line) ?: return@synchronized
+            writeBatch(listOf(safe))
+            return@synchronized
+        }
+        // A newer screen may already own this path: append only, never rotate or truncate here, and keep it short.
+        if (lateLines >= MAX_LATE_LINES) return@synchronized
+        if (!SessionLogPolicy.shouldWrite(line)) return@synchronized
+        val safe = DiagnosticRedactor.redact(line) ?: return@synchronized
+        synchronized(fileLock) {
+            if (runCatching { file.appendBytes((safe + "\n").toByteArray()) }.isSuccess) lateLines++
+        }
     }
 
     private fun enqueue(line: String) {
@@ -72,7 +106,7 @@ internal class SessionLogFile(val file: File) : Closeable {
         }
     }
 
-    private fun writeBatch(batch: List<String>) {
+    private fun writeBatch(batch: List<String>) = synchronized(fileLock) {
         runCatching {
             if (file.length() > MAX_BYTES) {
                 rotate()
@@ -113,6 +147,8 @@ internal class SessionLogFile(val file: File) : Closeable {
         private const val MAX_BATCH = 128
         private const val POLL_MS = 200L
         private const val CLOSE_FLUSH_MS = 300L
+        /** Teardown evidence after close is a handful of lines; anything beyond this is noise. */
+        private const val MAX_LATE_LINES = 200
         private val ARCHIVE_NAMES = listOf("previous.log") + (2..7).map { "previous-$it.log" }
         val REPORT_NAMES = ARCHIVE_NAMES.reversed() + "diplay.log"
     }

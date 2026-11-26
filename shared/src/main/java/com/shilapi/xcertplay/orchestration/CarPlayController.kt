@@ -1629,6 +1629,7 @@ class CarPlayController(
                     it.close()
                 }
                 wirelessConnectionProof.activate(generation, session)
+                observeWirelessScreen(generation, session)
                 sessionListener.onSessionActive(session)
             }
 
@@ -1708,36 +1709,14 @@ class CarPlayController(
                     phase != Phase.WIRELESS ||
                     generation != wirelessGeneration.get() ||
                     !wirelessHandoffRequested.get() ||
-                    wirelessActiveReported.get()
+                    wirelessActiveReported.get() ||
+                    wirelessTunnelReady.get()
                 ) {
                     return@postDelayed
                 }
                 debugLog("wireless handoff timed out waiting for tunnel iAP2 readiness")
                 Thread(
-                    {
-                        if (
-                            closed ||
-                            phase != Phase.WIRELESS ||
-                            generation != wirelessGeneration.get() ||
-                            wirelessActiveReported.get()
-                        ) {
-                            return@Thread
-                        }
-                        if (wirelessConnectionProof.hasRenderedFrame(generation)) {
-                            // Some iPhones/firmware combinations establish video but never
-                            // request the type-130 iAP2 tunnel. Do not tear down a proven live
-                            // CarPlay session just because that optional control channel did not
-                            // arrive; that teardown causes the visible reconnect loop.
-                            debugLog(
-                                "wireless handoff tunnel iAP2 unavailable after first video frame; " +
-                                    "preserving the active CarPlay session",
-                            )
-                            onStatus(CarPlayStatus.WirelessActive)
-                            return@Thread
-                        }
-                        closeWirelessStack()
-                        fail(IOException("Wireless CarPlay handoff timed out waiting for tunnel iAP2"))
-                    },
+                    { handleWirelessHandoffTimeout(generation) },
                     "xcertplay-wireless-handoff-timeout",
                 ).apply {
                     isDaemon = true
@@ -1746,6 +1725,64 @@ class CarPlayController(
             },
             WIRELESS_HANDOFF_TIMEOUT_MILLIS,
         )
+    }
+
+    private fun mainScreenOutput(): MainScreenOutput {
+        val attachments = media.mainScreenOutputAttachments()
+        return MainScreenOutput(media.hasMainScreenOutput(), attachments)
+    }
+
+    private fun observeWirelessScreen(generation: Int, session: AirPlaySession) {
+        wirelessConnectionProof.observeScreen(generation, session, mainScreenOutput())
+    }
+
+    private fun wirelessSessionUsable(generation: Int, screen: MainScreenOutput): Boolean {
+        val session = activeSession ?: return false
+        return wirelessConnectionProof.isUsable(
+            generation, session, session.hasReceivedAudio, session.hasReceivedMainVideo, screen,
+        )
+    }
+
+    internal fun handleWirelessHandoffTimeout(generation: Int) {
+        if (
+            closed ||
+            phase != Phase.WIRELESS ||
+            generation != wirelessGeneration.get() ||
+            !wirelessHandoffRequested.get() ||
+            wirelessActiveReported.get() ||
+            wirelessTunnelReady.get()
+        ) {
+            return
+        }
+        val screen = mainScreenOutput()
+        val session = activeSession
+        if (wirelessSessionUsable(generation, screen)) {
+            if (!wirelessActiveReported.compareAndSet(false, true)) return
+            val proof = when {
+                wirelessConnectionProof.hasRenderedFrame(generation) -> "rendered video"
+                session?.hasReceivedMainVideo == true && !session.hasReceivedAudio ->
+                    "iPhone video while CarPlay is hidden"
+                else -> "iPhone audio while CarPlay is hidden"
+            }
+            // Some iPhones/firmware combinations establish video or audio while hidden without
+            // opening the optional type-130 iAP2 tunnel. Preserve a proven session instead of
+            // causing a reconnect loop.
+            debugLog(
+                "wireless handoff fallback after $proof; tunnel iAP2 unavailable; " +
+                    "preserving the active CarPlay session",
+            )
+            onStatus(CarPlayStatus.WirelessActive)
+            return
+        }
+        debugLog(
+            "wireless handoff found no working session: session=${session != null} " +
+                "renderedFrame=${wirelessConnectionProof.hasRenderedFrame(generation)} " +
+                "audio=${session?.hasReceivedAudio == true} video=${session?.hasReceivedMainVideo == true} " +
+                "screenAttached=${screen.attached} " +
+                "screenAttachedDuringSession=${wirelessConnectionProof.screenShown(generation)}",
+        )
+        closeWirelessStack()
+        fail(IOException("Wireless CarPlay handoff timed out waiting for tunnel iAP2"))
     }
 
     private fun closeBluetoothBootstrapTransport() {
@@ -2678,17 +2715,29 @@ class CarPlayController(
     private fun debugLog(message: String) {
         Log.i(IphoneCarPlayConfiguration.TAG, message)
         try {
-            uiListener?.onDebugLog(message)
+            uiListener?.onDebugLog(afterClose(message))
         } catch (error: Exception) {
             Log.w(IphoneCarPlayConfiguration.TAG, "debug log callback failed", error)
         }
     }
 
+    /**
+     * Lines from work that finishes after [close] (a Wi-Fi scan pause or a car Bluetooth pause released on a
+     * worker, a teardown failure) go out as connection diagnostics, which the report keeps after the CarPlay
+     * screen has gone.
+     */
+    private fun afterClose(message: String): String =
+        if (!closed || message.startsWith("$CONNECTION_DIAGNOSTIC_PREFIX ")) message
+        else runCatching {
+            "$CONNECTION_DIAGNOSTIC_PREFIX attempt=$diagnosticAttempt run=${diagnosticRun.get()} phase=${diagnosticPhaseName()} $message"
+        }.getOrDefault(message)
+
+    private fun diagnosticPhaseName(): String = if (phase == Phase.IPHONE) "USB_DISCOVERY" else phase.name
+
     private fun connectionDiagnostic(message: String) {
         try {
-            // The redactor reserves "PHONE " for private phone-side log captures.
-            val diagnosticPhase = if (phase == Phase.IPHONE) "USB_DISCOVERY" else phase.name
-            debugLog("$CONNECTION_DIAGNOSTIC_PREFIX attempt=$diagnosticAttempt run=${diagnosticRun.get()} phase=$diagnosticPhase $message")
+            // The redactor reserves "PHONE " for private phone-side log captures (see diagnosticPhaseName).
+            debugLog("$CONNECTION_DIAGNOSTIC_PREFIX attempt=$diagnosticAttempt run=${diagnosticRun.get()} phase=${diagnosticPhaseName()} $message")
         } catch (_: Exception) {
             // Optional diagnostics must not change transport or shutdown behavior.
         }
@@ -2704,7 +2753,7 @@ class CarPlayController(
         Log.w(IphoneCarPlayConfiguration.TAG, message, error)
         try {
             uiListener?.onDebugLog(
-                "$message: ${error.message ?: error.javaClass.simpleName}",
+                afterClose("$message: ${error.message ?: error.javaClass.simpleName}"),
             )
         } catch (callbackError: Exception) {
             Log.w(IphoneCarPlayConfiguration.TAG, "debug log callback failed", callbackError)

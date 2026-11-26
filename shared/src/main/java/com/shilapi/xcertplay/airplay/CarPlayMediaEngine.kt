@@ -27,6 +27,13 @@ interface MediaSink {
     fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {}
     fun onMicrophoneStopped(id: AudioStreamId) {}
     fun onIapMessage(bytes: ByteArray) {}
+    /** Whether a surface is attached that stream [type]'s frames could be drawn on, its own or a mirror. */
+    fun hasVideoOutput(type: Int): Boolean = true
+    /**
+     * How many times a surface for stream [type], its own or a mirror, has been attached; it only grows.
+     * A change shows that one was attached in between, even if it is gone again.
+     */
+    fun videoOutputAttachments(type: Int): Long = 0L
 }
 
 /**
@@ -68,6 +75,9 @@ class CarPlayMediaEngine(
     @Volatile private var nextRemoteControlStreamId = FIRST_REMOTE_CONTROL_STREAM_ID
     @Volatile private var iapTunnelHandler: ((BlockingDuplexByteStream) -> Boolean)? = null
 
+    override fun hasMainScreenOutput(): Boolean = sink.hasVideoOutput(STREAM_TYPE_MAIN_SCREEN)
+    override fun mainScreenOutputAttachments(): Long = sink.videoOutputAttachments(STREAM_TYPE_MAIN_SCREEN)
+
     override fun setIapTunnelHandler(handler: ((BlockingDuplexByteStream) -> Boolean)?) {
         iapTunnelHandler = handler
     }
@@ -107,7 +117,10 @@ class CarPlayMediaEngine(
             object : ScreenStream.Listener {
                 override fun onCodec(codec: VideoCodec) = sink.onVideoCodec(type, codec)
                 override fun onConfig(codecData: ByteArray) = sink.onVideoConfig(type, codecData)
-                override fun onFrame(naluBytes: ByteArray) = sink.onVideoFrame(type, naluBytes)
+                override fun onFrame(naluBytes: ByteArray) {
+                    if (type == STREAM_TYPE_MAIN_SCREEN && naluBytes.isNotEmpty()) session.noteMainVideoReceived()
+                    sink.onVideoFrame(type, naluBytes)
+                }
                 override fun onClosed(cause: Throwable?) {
                     Log.w(
                         TAG,
@@ -178,8 +191,12 @@ class CarPlayMediaEngine(
                     microphone?.let { sink.onMicrophoneStarted(streamId, it) }
                 }
 
-                override fun onRtp(rtp: ByteArray, sample: Int) =
+                override fun onRtp(rtp: ByteArray, sample: Int) {
+                    if (type == STREAM_TYPE_MAIN_AUDIO || type == STREAM_TYPE_MAIN_HIGH_AUDIO) {
+                        session.noteAudioReceived()
+                    }
                     sink.onAudioRtp(streamId, format, rtp, sample)
+                }
 
                 override fun onPacket(
                     wire: ByteArray,
@@ -454,6 +471,7 @@ class CarPlayMediaEngine(
         /** The instruction-card screen; internal id assigned by AirPlaySession (wire type 111). */
         const val STREAM_TYPE_ALT_CARD = 112
         const val STREAM_TYPE_MAIN_AUDIO = 100
+        const val STREAM_TYPE_MAIN_HIGH_AUDIO = 102
         const val STREAM_TYPE_DATA = 130
         const val DATASTREAM_OUTPUT_KEY = "DataStream-Output-Encryption-Key"
         const val DATASTREAM_INPUT_KEY = "DataStream-Input-Encryption-Key"

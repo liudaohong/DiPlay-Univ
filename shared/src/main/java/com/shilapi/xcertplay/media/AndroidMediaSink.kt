@@ -171,6 +171,19 @@ internal class AudioFocusCoordinator(
     }
 
     /**
+     * Puts a rebuilt track in its predecessor's place. The focus request stays as it is: asking again can make
+     * the car's Bluetooth music, which holds focus too, pause the iPhone (#1229).
+     */
+    @Synchronized
+    fun replace(old: AudioTrack, rebuilt: AudioTrack) {
+        val entry = active.remove(old) ?: return
+        active[rebuilt] = entry
+        if (entry.channel == AudioChannel.MEDIA) {
+            runCatching { rebuilt.setStereoVolume(FULL_VOLUME, FULL_VOLUME) }
+        }
+    }
+
+    /**
      * The focus request follows the highest-priority active channel, but the MEDIA request is
      * deliberately NOT abandoned when a call appears. Abandoning it makes the head unit's audio
      * policy re-evaluate from scratch, which is what re-ducked media every few seconds during a
@@ -447,6 +460,8 @@ private const val MAIN_STREAM_TYPE = 110
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
     private val defaultSurface = surface
+    @Volatile private var videoClosed = false
+    private val videoOutputAttachments = ConcurrentHashMap<Int, AtomicLong>()
     @Volatile private var screenStreamActiveChanged = onScreenStreamActiveChanged
     @Volatile private var screenStreamOutputSize = onScreenStreamOutputSize
     private val surfaces = ConcurrentHashMap<Int, Surface>()
@@ -638,7 +653,19 @@ private const val MAIN_STREAM_TYPE = 110
         }
     }
 
+    override fun hasVideoOutput(type: Int): Boolean =
+        !videoClosed && ((surfaces[type] ?: defaultSurface) != null ||
+            synchronized(mirrorLock) { mirrorSurfaces.keys.any { it.first == type } })
+
+    override fun videoOutputAttachments(type: Int): Long = videoOutputAttachments[type]?.get() ?: 0L
+
+    private fun countVideoOutputAttached(type: Int) {
+        videoOutputAttachments.computeIfAbsent(type) { AtomicLong() }.incrementAndGet()
+    }
+
     fun setSurface(type: Int, surface: Surface) {
+        if (videoClosed) return
+        countVideoOutputAttached(type)
         surfaces[type] = surface
         // A paused or capture-only stream stores the surface but owns no decoder.
         if (type in pausedStreamTypes || type in captureOnlyTypes) return
@@ -690,6 +717,7 @@ private const val MAIN_STREAM_TYPE = 110
      * starts at the next keyframe it asks for; null stops it. The stream's own surface is not affected.
      */
     fun setMirrorSurface(type: Int, key: String, surface: Surface?) {
+        if (videoClosed) return
         val id = type to key
         synchronized(mirrorLock) {
             mirrorDecoders.remove(id)?.close()
@@ -699,6 +727,7 @@ private const val MAIN_STREAM_TYPE = 110
             }
             mirrorSurfaces[id] = surface
         }
+        countVideoOutputAttached(type)
         lastVideoConfig[type]?.let { (codec, data) -> mirrorDecoders(type).forEach { it.configure(codec, data) } }
     }
 
@@ -1268,6 +1297,7 @@ private const val MAIN_STREAM_TYPE = 110
         audioRenderers.values.filter { it.channel() == AudioChannel.MEDIA }
 
     fun close() {
+        videoClosed = true
         liveSinks.remove(this)
         closedForPoll = true
         audioModeHandler.removeCallbacks(audioModePoll)
@@ -1278,6 +1308,7 @@ private const val MAIN_STREAM_TYPE = 110
         }
         videoDecoders.values.forEach(VideoDecoder::close)
         videoDecoders.clear()
+        surfaces.clear()
         pausedStreamTypes.clear()
         synchronized(mirrorLock) {
             mirrorDecoders.values.forEach(VideoDecoder::close)
@@ -1364,7 +1395,21 @@ private const val MAIN_STREAM_TYPE = 110
             onMediaHeard = onMediaHeard,
             callVoiceFilter = isTelephony && callVoiceFilter,
             echoReference = echoRef,
-        ).also { audioRenderers[id] = it }
+        ).also {
+            it.readMusicVolume = ::readMusicVolume
+            audioRenderers[id] = it
+        }
+    }
+
+    private fun readMusicVolume(): MusicVolume? = audioManager?.let { manager ->
+        runCatching {
+            MusicVolume(
+                value = manager.getStreamVolume(AudioManager.STREAM_MUSIC),
+                max = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+                muted = manager.isStreamMute(AudioManager.STREAM_MUSIC),
+                fixed = manager.isVolumeFixed,
+            )
+        }.getOrNull()
     }
 }
 
@@ -2099,7 +2144,7 @@ private class AudioRenderer(
     private var statsWindowStartNs = 0L
     private var statsLastUnderruns = 0
     private var bytesPerSecond = 0
-    private val bufferProgress = AudioBufferProgress(if (format.channels >= 2) 4 else 2)
+    private var bufferProgress = AudioBufferProgress(frameBytes)
     private var underrunsAtPlaybackStart = 0
     private var lastUnderrunSeen = 0
     private var clockTrim: MediaClockTrim? = null
@@ -2110,6 +2155,19 @@ private class AudioRenderer(
     private var longestBlockedWriteMs = 0L
     private var unsentPcmBytesThisWindow = 0L
     private var unsentPcmBytesTotal = 0L
+    /** Music only, set with the track; see [MediaTrackStall]. */
+    @Volatile private var trackStall: MediaTrackStall? = null
+    /** Set once, when [trackStall] asks for a new track; writes stop until the worker has built it. */
+    @Volatile private var rebuildPending = false
+    private var awaitingRebuiltTrack = false
+    /** Reads Android's music volume for the report; set by [AndroidMediaSink]. */
+    var readMusicVolume: () -> MusicVolume? = { null }
+    private var musicVolume: MusicVolume? = null
+    private var mediaStartReported = false
+    private var playbackStartedNs = 0L
+    private var actualLegacyStreamType: Int? = null
+    /** The clock of the stall and media-start checks; tests replace it. */
+    private var nanoTime: () -> Long = System::nanoTime
     private var diagnosticStage = "starting"
     private var lastDecoderOutputMetadata: String? = null
     private var decoderOutputReports = 0
@@ -2131,6 +2189,7 @@ private class AudioRenderer(
         val previous = lastArrivalNs.getAndSet(now)
         if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
         newestRtpSample = sample
+        trackStall?.packetArrived(nanoTime(), ::interruptBlockedWrite)
 
         // AirPlay's advertised RTP redundancy places recent frames in front of the current one.
         // Feed them oldest-first; submitPacket drops samples that are already behind the queue.
@@ -2228,6 +2287,8 @@ private class AudioRenderer(
             createTrack()
             diagnosticStage = "focus"
             requestAudioFocus()
+            // Read before playback: these are binder calls, and nothing can run dry yet.
+            if (trackStall != null) musicVolume = runCatching { readMusicVolume() }.getOrNull()
             while (running) {
                 diagnosticStage = "packet"
                 queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
@@ -2235,6 +2296,8 @@ private class AudioRenderer(
                 // Waiting for the next UDP packet can strand decoded sound for hundreds of ms.
                 diagnosticStage = "decoder-output"
                 codec?.let(::drainCodec)
+                recoverStalledTrack()
+                reportMediaStart()
                 diagnosticStage = "buffer-maintenance"
                 maintainPlaybackBuffer()
                 diagnosticStage = "stats"
@@ -2253,6 +2316,7 @@ private class AudioRenderer(
             if (running) reportFailure(error)
             throw error
         } finally {
+            runCatching { reportMediaStart(force = true) }
             runCatching { logStatsIfDue(force = true) }
             release()
         }
@@ -2330,6 +2394,7 @@ private class AudioRenderer(
         bytesPerSecond = format.sampleRate * frameBytes
         val built: AudioTrack
         var routeLabel: String
+        actualLegacyStreamType = null
         diagnosticStage = "track-build"
         if (streamOverride == 0) {
             attributes = audioAttributesFor(selection)
@@ -2342,6 +2407,7 @@ private class AudioRenderer(
                 .build()
         } else {
             val streamType = streamOverride
+            var usedFallback = false
             routeLabel = "streamType=$streamType"
             built = LegacyAudioFallback.build(
                 createLegacy = {
@@ -2351,6 +2417,7 @@ private class AudioRenderer(
                 isInitialized = { it.state == AudioTrack.STATE_INITIALIZED },
                 release = { it.release() },
                 createFallback = {
+                    usedFallback = true
                     diagnosticStage = "track-fallback-build"
                     routeLabel = "streamType=$streamType(fallback=usage)"
                     Log.w(TAG, "streamType=$streamType rejected by this ROM; falling back to usage-based track")
@@ -2363,6 +2430,7 @@ private class AudioRenderer(
                         .build()
                 },
             )
+            if (!usedFallback) actualLegacyStreamType = streamType
         }
         track = built
         lastUnderrunSeen = built.underrunCount
@@ -2378,6 +2446,7 @@ private class AudioRenderer(
         diagnosticStage = "track-capacity"
         val capacityBytes = built.bufferSizeInFrames * frameBytes
         startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
+        if (mappedChannel == AudioChannel.MEDIA && trackStall == null) trackStall = MediaTrackStall()
         val capacityFrames = (capacityBytes / frameBytes).toLong()
         // The app-side write queue cannot reach the nominal one-second start threshold on every
         // platform: part of the AudioTrack buffer lives in the server and the writer blocks with
@@ -2814,6 +2883,8 @@ private class AudioRenderer(
 
     private fun writePcm(data: ByteArray, offset: Int = 0, length: Int = data.size) {
         val track = track ?: return
+        // What is left of the stalled track's music; the rebuilt track starts with what comes next.
+        if (rebuildPending) return
         diagnosticStage = "track-write"
         if (!firstPcmLogged && length > 0) {
             firstPcmLogged = true
@@ -2851,7 +2922,7 @@ private class AudioRenderer(
         }
         val deadline = System.nanoTime() + deadlineNs
         var written = 0
-        while (written < length && running) {
+        while (written < length && running && !rebuildPending) {
             val writeLength = if (playbackStarted) {
                 length - written
             } else {
@@ -2868,7 +2939,14 @@ private class AudioRenderer(
             } else {
                 AudioTrack.WRITE_NON_BLOCKING
             }
-            val count = track.write(data, offset + written, writeLength, writeMode)
+            val stallWatch = trackStall?.takeIf { playbackStarted }
+            val stallStartNs = if (stallWatch != null) nanoTime() else 0L
+            stallWatch?.writeStarted()
+            val count = try {
+                track.write(data, offset + written, writeLength, writeMode)
+            } finally {
+                stallWatch?.writeEnded()
+            }
             val writeMs = (System.nanoTime() - writeStarted) / 1_000_000L
             maxWriteMs = maxOf(maxWriteMs, writeMs)
             if (writeMs >= BLOCKED_WRITE_MS) {
@@ -2888,6 +2966,12 @@ private class AudioRenderer(
                 // Full track: nothing was consumed. Retry briefly while the frame is still worth
                 // playing, so the decode loop never sleeps for hundreds of ms inside one write.
                 zeroWritesThisWindow++
+                if (writeMode == AudioTrack.WRITE_BLOCKING) {
+                    stallWatch?.let { noteRefusedWrite(it, track, stallStartNs) }
+                    recordLostPcm((length - written).toLong())
+                    clockTrim?.noteOverflow(System.nanoTime())
+                    break
+                }
                 if (System.nanoTime() >= deadline) {
                     recordLostPcm((length - written).toLong())
                     // A dropped frame is direct proof that the track is full: tell the clock trim
@@ -2902,6 +2986,7 @@ private class AudioRenderer(
                 LockSupport.parkNanos(MICRO_WAIT_NS)
                 continue
             }
+            trackStall?.clear()
             if (count < writeLength) partialWritesThisWindow++
             written += count
             val framesWritten = count / frameBytes
@@ -2976,6 +3061,97 @@ private class AudioRenderer(
         underrunsAtPlaybackStart = track.underrunCount
         track.play()
         playbackStarted = true
+        trackStall?.clear()
+        if (playbackStartedNs == 0L) playbackStartedNs = nanoTime()
+    }
+
+    /** Worker: the playing track took nothing. Says so once the car has taken nothing for long enough. */
+    private fun noteRefusedWrite(watch: MediaTrackStall, track: AudioTrack, startedNs: Long) {
+        // A track that close() or the rebuffer paused refuses writes on purpose.
+        if (!running || rebuildPending || track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+            watch.clear()
+            return
+        }
+        reportStall(watch.refused(startedNs, nanoTime(), track.playbackHeadPosition) ?: return)
+    }
+
+    /** Network thread, while the worker's write is blocked: only a pause makes that write return. */
+    private fun interruptBlockedWrite(stall: MediaTrackStall.Stall) {
+        if (!running) return
+        reportStall(stall)
+        // As in close(): quick calls that never wait for the worker.
+        if (stall.rebuild) runCatching { track?.pause() }
+    }
+
+    private fun reportStall(stall: MediaTrackStall.Stall) {
+        if (stall.rebuild) rebuildPending = true
+        val line = MediaAudioLines.notConsuming(stall.headFrames, stall.stalledNs, stall.zeroWrites, queue.size, stall.rebuild)
+        Log.w(TAG, line)
+        runCatching { report(line) }
+    }
+
+    /** Worker: replaces a track the car takes nothing from, once per stream, and reports whether that helped. */
+    private fun recoverStalledTrack() {
+        if (rebuildPending) {
+            if (running) rebuildTrack()
+            rebuildPending = false
+        } else if (awaitingRebuiltTrack && playbackStarted) {
+            val head = (track?.playbackHeadPosition ?: 0).toLong() and 0xffff_ffffL
+            if (head == 0L) return
+            awaitingRebuiltTrack = false
+            runCatching { report(MediaAudioLines.consumingAgain(head)) }
+        }
+    }
+
+    private fun rebuildTrack() {
+        val old = track ?: return
+        diagnosticStage = "track-rebuild"
+        runCatching { old.pause() }
+        runCatching { old.flush() }
+        // A new or flushed track counts its frames from zero.
+        playbackStarted = false
+        prebufferBytes = 0
+        totalWrittenFrames = 0L
+        bufferProgress = AudioBufferProgress(frameBytes)
+        lastPlaybackHeadFrames = null
+        lastHeadPosition = -1
+        lastHeadMovedAt = SystemClock.elapsedRealtime()
+        mediaStalled = false
+        statsLastUnderruns = 0
+        lastUnderrunSeen = 0
+        fadeApplied = false
+        trackStall?.clear()
+        // Build the new track first: if the head unit refuses it, the old one is filled and started again.
+        try {
+            createTrack()
+        } catch (error: Exception) {
+            reportFailure(error)
+        }
+        val rebuilt = track
+        val recreated = rebuilt != null && rebuilt !== old
+        if (recreated) {
+            audioFocusCoordinator.replace(old, rebuilt!!)
+            runCatching { old.release() }
+        } else {
+            statsLastUnderruns = runCatching { old.underrunCount }.getOrDefault(0)
+            lastUnderrunSeen = statsLastUnderruns
+        }
+        awaitingRebuiltTrack = true
+        runCatching { report(MediaAudioLines.rebuilt(recreated)) }
+    }
+
+    /** Worker: once per music stream, the volume it started with and, once it has settled, where it plays. */
+    private fun reportMediaStart(force: Boolean = false) {
+        if (mediaStartReported || playbackStartedNs == 0L || trackStall == null) return
+        if (!force && nanoTime() - playbackStartedNs < MEDIA_START_REPORT_NS) return
+        mediaStartReported = true
+        val line = MediaAudioLines.started(
+            musicVolume,
+            runCatching { track?.routedDevice?.type }.getOrNull(),
+            actualLegacyStreamType ?: 0,
+        )
+        Log.i(TAG, line)
+        runCatching { report(line) }
     }
 
     private fun maintainPlaybackBuffer() {
@@ -3146,6 +3322,8 @@ private class AudioRenderer(
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_POLL_MILLIS = 10L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
+        /** The route is only known once the track plays. */
+        const val MEDIA_START_REPORT_NS = 1_000_000_000L
         // Holds a burst after a Wi-Fi gap (~4 s of AAC) instead of dropping it.
         const val MAX_QUEUED_PACKETS = 192
         const val MAX_REBUFFER_REPORTS = 5

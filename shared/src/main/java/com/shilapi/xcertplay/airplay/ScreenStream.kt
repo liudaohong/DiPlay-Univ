@@ -90,12 +90,9 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
     private fun onMessage(header: ByteArray, body: ByteArray) {
         when (header[OPCODE_OFFSET].toInt() and 0xff) {
             OP_VIDEO_FRAME -> {
-                val payload = if (body.size >= ScreenCodec.TAG_SIZE) {
-                    ScreenCodec.decryptFrame(key, frameCounter.get(), header, body)
-                        .also { frameCounter.incrementAndGet() }
-                } else {
-                    body
-                }
+                if (body.size < ScreenCodec.TAG_SIZE) return
+                val payload = ScreenCodec.decryptFrame(key, frameCounter.get(), header, body)
+                    .also { frameCounter.incrementAndGet() }
                 if (firstFrameLogged.compareAndSet(false, true)) {
                     Log.i(
                         TAG,
